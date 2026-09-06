@@ -4,3 +4,5 @@ test_status
 vhdb.bin
 *.o
 *.part
+vita/build/
+vita/build/
