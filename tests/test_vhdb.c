@@ -84,10 +84,22 @@ int main(int argc, char **argv)
 		dump(&db, vhdb_by_name(&db, i));
 
 	{
-		const vhdb_record *rec = vhdb_by_date(&db, 0);
 		char titleid[13];
-		vhdb_titleid(rec, titleid, sizeof(titleid));
-		check(vhdb_find_titleid(&db, titleid) != NULL, "titleid lookup finds an entry");
+		uint32_t found = 0;
+		for (i = 0; i < vhdb_count(&db); i++) {
+			const vhdb_record *rec = vhdb_at(&db, i);
+			if (rec->titleid[0] == 0)
+				continue;
+			vhdb_titleid(rec, titleid, sizeof(titleid));
+			if (vhdb_find_titleid(&db, titleid) == NULL) {
+				printf("FAIL titleid lookup missed %s\n", titleid);
+				failures++;
+				break;
+			}
+			found++;
+		}
+		printf("with a title id  %u of %u\n", found, vhdb_count(&db));
+		check(found > 0, "catalog has entries with a title id");
 		check(vhdb_find_titleid(&db, "NOPE00000") == NULL, "unknown titleid is null");
 	}
 
