@@ -1,5 +1,6 @@
 #include "vhdb_icons.h"
 #include "vhdb_vitanet.h"
+#include "vhdb_zip.h"
 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
@@ -14,6 +15,9 @@
 
 #define ICON_DIR "ux0:data/vhdb/icons"
 #define ICON_URL "https://drdecki.github.io/VitaHomebrewDB/icons/"
+#define ICON_PACK_URL "https://drdecki.github.io/VitaHomebrewDB/icons.zip"
+#define ICON_PACK_FILE "ux0:data/vhdb/icons.zip"
+#define ICON_PACK_MARK ICON_DIR "/.pack"
 
 #define STATE_UNKNOWN 0
 #define STATE_QUEUED 1
@@ -112,6 +116,43 @@ static int worker_main(SceSize args, void *argp)
 		wanted = -1;
 	}
 	return 0;
+}
+
+int vhdb_icons_have_pack(void)
+{
+	SceIoStat stat;
+
+	memset(&stat, 0, sizeof(stat));
+	return sceIoGetstat(ICON_PACK_MARK, &stat) >= 0;
+}
+
+int vhdb_icons_fetch_pack(vhdb_progress_fn progress, void *download_label,
+			  vhdb_zip_progress unpack, void *unpack_label)
+{
+	SceUID mark;
+
+	sceIoMkdir(ICON_DIR, 0777);
+
+	if (!vhdb_net_fetch(ICON_PACK_URL, ICON_PACK_FILE, progress, download_label))
+		return 0;
+
+	if (!vhdb_zip_extract(ICON_PACK_FILE, ICON_DIR, unpack, unpack_label)) {
+		sceIoRemove(ICON_PACK_FILE);
+		return 0;
+	}
+
+	sceIoRemove(ICON_PACK_FILE);
+
+	mark = sceIoOpen(ICON_PACK_MARK, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC,
+			 0777);
+	if (mark >= 0) {
+		sceIoWrite(mark, "1", 1);
+		sceIoClose(mark);
+	}
+
+	if (states)
+		memset(states, STATE_UNKNOWN, entry_count);
+	return 1;
 }
 
 int vhdb_icons_start(const vhdb_db *db)

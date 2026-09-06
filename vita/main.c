@@ -42,6 +42,10 @@
 #define CATALOG_PATH DATA_DIR "/vhdb.bin"
 #define INSTALLED_PATH DATA_DIR "/installed.txt"
 #define CATALOG_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.bin"
+#define VERSION_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/version.txt"
+#define CLIENT_VPK_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.vpk"
+#define VERSION_PATH DATA_DIR "/version.txt"
+#define CLIENT_VERSION "1.0"
 
 #define VIEW_LIST 0
 #define VIEW_DETAIL 1
@@ -402,8 +406,18 @@ static void draw_detail(void)
 	{
 		vita2d_texture *icon = vhdb_icon_for(filtered[selected]);
 
-		if (icon)
-			vita2d_draw_texture(icon, (float)(SCREEN_WIDTH - 150), 34.0f);
+		if (icon) {
+			float width = (float)vita2d_texture_get_width(icon);
+			float height = (float)vita2d_texture_get_height(icon);
+			float longest = width > height ? width : height;
+			float factor = longest > 0.0f ? 128.0f / longest : 1.0f;
+			float box = (float)(SCREEN_WIDTH - 150);
+
+			vita2d_draw_texture_scale(icon,
+						  box + (128.0f - width * factor) / 2.0f,
+						  34.0f + (128.0f - height * factor) / 2.0f,
+						  factor, factor);
+		}
 	}
 
 	clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.0f, 500);
@@ -717,6 +731,128 @@ static void scan_console(void)
 			"Versions now come from the files themselves.");
 }
 
+static int cancelled_by_user(void)
+{
+	SceCtrlData pad;
+
+	sceCtrlPeekBufferPositive(0, &pad, 1);
+	return (pad.buttons & SCE_CTRL_CIRCLE) ? 1 : 0;
+}
+
+static int read_version_file(char *out, size_t size)
+{
+	SceUID file;
+	int read;
+
+	file = sceIoOpen(VERSION_PATH, SCE_O_RDONLY, 0777);
+	if (file < 0)
+		return 0;
+
+	read = sceIoRead(file, out, (unsigned int)size - 1);
+	sceIoClose(file);
+	sceIoRemove(VERSION_PATH);
+
+	if (read <= 0)
+		return 0;
+	out[read] = 0;
+
+	while (read > 0 && (out[read - 1] == '\n' || out[read - 1] == '\r' ||
+			    out[read - 1] == ' '))
+		out[--read] = 0;
+	return out[0] != 0;
+}
+
+static void check_client_update(void)
+{
+	char latest[32];
+	char line[96];
+	SceCtrlData pad;
+	unsigned int previous = 0xFFFFFFFF;
+
+	if (!vhdb_net_fetch(VERSION_URL, VERSION_PATH, NULL, NULL))
+		return;
+	if (!read_version_file(latest, sizeof(latest)))
+		return;
+	if (vhdb_version_compare(CLIENT_VERSION, latest) != VHDB_VER_NEWER)
+		return;
+
+	snprintf(line, sizeof(line), "You have %s, %s is out", CLIENT_VERSION,
+		 latest);
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		if (pressed & SCE_CTRL_CIRCLE)
+			return;
+		if (pressed & SCE_CTRL_CROSS)
+			break;
+
+		frame_with_overlay("A new VHDB is out", line,
+				   "X updates now, O skips");
+	}
+
+	if (!vhdb_install_from_url(CLIENT_VPK_URL, NULL, download_progress,
+				   (void *)"Updating VHDB", unpack_progress,
+				   (void *)"Installing VHDB")) {
+		wait_for_button("Update failed", vhdb_install_error(), NULL);
+		return;
+	}
+
+	wait_for_button("VHDB updated", "Close it and start it again.", NULL);
+}
+
+static void check_catalog_quietly(void)
+{
+	uint8_t header[VHDB_HEADER_SIZE];
+
+	frame_with_overlay("Checking the catalog", NULL, "O skips");
+	if (cancelled_by_user())
+		return;
+
+	if (!vhdb_net_head(CATALOG_URL, header, sizeof(header)) ||
+	    read_u32(header) != VHDB_MAGIC)
+		return;
+	if (db.header && read_u32(header + 40) == db.header->catalog_hash)
+		return;
+
+	if (!vhdb_net_fetch(CATALOG_URL, CATALOG_PATH, download_progress,
+			    (void *)"A newer catalog is out"))
+		return;
+
+	reload_catalog();
+}
+
+static void fetch_icon_pack(void)
+{
+	if (vhdb_icons_have_pack())
+		return;
+
+	frame_with_overlay("Getting the icons", "This happens once, 11 MB",
+			   "O skips");
+	if (cancelled_by_user())
+		return;
+
+	vhdb_icons_fetch_pack(download_progress, (void *)"Getting the icons",
+			      unpack_progress, (void *)"Unpacking the icons");
+}
+
+static void startup_tasks(void)
+{
+	frame_with_overlay("Starting the network", NULL, "O skips");
+	if (cancelled_by_user())
+		return;
+	if (!vhdb_net_start() || !vhdb_net_online())
+		return;
+
+	check_client_update();
+	check_catalog_quietly();
+	fetch_icon_pack();
+}
+
 static void move_selection(int delta)
 {
 	if (filtered_count == 0)
@@ -798,6 +934,10 @@ int main(void)
 		category = CATEGORY_ALL;
 		rebuild_filter();
 	}
+
+	startup_tasks();
+	count_categories();
+	rebuild_filter();
 
 	while (1) {
 		unsigned int pressed;
