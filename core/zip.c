@@ -208,6 +208,120 @@ static int extract_one(FILE *archive, const char *destination, const char *name,
 	return !failed;
 }
 
+int vhdb_zip_top_level(const char *archive_path, char names[][64], int limit)
+{
+	FILE *archive;
+	uint8_t *tail;
+	uint8_t *directory;
+	long size, tail_length, marker;
+	uint32_t count, directory_size, directory_offset, position = 0;
+	int found = 0;
+	uint32_t i;
+
+	last_error[0] = 0;
+
+	archive = fopen(archive_path, "rb");
+	if (!archive)
+		return -1;
+
+	fseek(archive, 0, SEEK_END);
+	size = ftell(archive);
+	if (size < 22) {
+		fclose(archive);
+		return -1;
+	}
+
+	tail_length = size < TAIL_SIZE ? size : TAIL_SIZE;
+	tail = (uint8_t *)malloc((size_t)tail_length);
+	if (!tail) {
+		fclose(archive);
+		return -1;
+	}
+
+	fseek(archive, size - tail_length, SEEK_SET);
+	if (fread(tail, 1, (size_t)tail_length, archive) != (size_t)tail_length) {
+		free(tail);
+		fclose(archive);
+		return -1;
+	}
+
+	for (marker = tail_length - 22; marker >= 0; marker--) {
+		if (read_u32(tail + marker) == 0x06054B50u)
+			break;
+	}
+	if (marker < 0) {
+		free(tail);
+		fclose(archive);
+		return -1;
+	}
+
+	count = read_u16(tail + marker + 10);
+	directory_size = read_u32(tail + marker + 12);
+	directory_offset = read_u32(tail + marker + 16);
+	free(tail);
+
+	directory = (uint8_t *)malloc(directory_size);
+	if (!directory) {
+		fclose(archive);
+		return -1;
+	}
+
+	fseek(archive, (long)directory_offset, SEEK_SET);
+	if (fread(directory, 1, directory_size, archive) != directory_size) {
+		free(directory);
+		fclose(archive);
+		return -1;
+	}
+	fclose(archive);
+
+	for (i = 0; i < count; i++) {
+		char name[256];
+		char top[64];
+		uint16_t name_length, extra_length, comment_length;
+		size_t length = 0;
+		int known = 0;
+		int n;
+
+		if (position + 46 > directory_size ||
+		    read_u32(directory + position) != 0x02014B50u)
+			break;
+
+		name_length = read_u16(directory + position + 28);
+		extra_length = read_u16(directory + position + 30);
+		comment_length = read_u16(directory + position + 32);
+
+		if (name_length >= sizeof(name))
+			break;
+		memcpy(name, directory + position + 46, name_length);
+		name[name_length] = 0;
+		position += 46u + name_length + extra_length + comment_length;
+
+		while (name[length] && name[length] != '/' && name[length] != '\\' &&
+		       length + 1 < sizeof(top))
+			length++;
+		memcpy(top, name, length);
+		top[length] = 0;
+		if (!top[0])
+			continue;
+
+		for (n = 0; n < found; n++) {
+			if (strcmp(names[n], top) == 0) {
+				known = 1;
+				break;
+			}
+		}
+		if (known)
+			continue;
+
+		if (found < limit)
+			snprintf(names[found], 64, "%s", top);
+		found++;
+	}
+
+	free(directory);
+	return found;
+}
+
 int vhdb_zip_extract(const char *archive_path, const char *destination,
 		     vhdb_zip_progress progress, void *user)
 {

@@ -20,4 +20,11 @@ int vita2d_pgf_text_width(vita2d_pgf *font, float scale, const char *text);
 vita2d_texture *vita2d_load_PNG_file(const char *filename);
 void vita2d_free_texture(vita2d_texture *texture);
 void vita2d_draw_texture_scale(const vita2d_texture *texture, float x, float y, float sx, float sy);
+unsigned int vita2d_texture_get_width(const vita2d_texture *texture);
+unsigned int vita2d_texture_get_height(const vita2d_texture *texture);
+void *vita2d_texture_get_datap(const vita2d_texture *texture);
+unsigned int vita2d_texture_get_stride(const vita2d_texture *texture);
+typedef unsigned int SceGxmTextureFormat;
+#define SCE_GXM_TEXTURE_FORMAT_A8B8G8R8 0x10004000
+SceGxmTextureFormat vita2d_texture_get_format(const vita2d_texture *texture);
 #endif
