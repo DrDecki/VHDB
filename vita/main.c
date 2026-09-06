@@ -2,6 +2,7 @@
 #include "vhdb_installed.h"
 #include "vhdb_status.h"
 #include "vhdb_vitanet.h"
+#include "vhdb_vitainstall.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -397,7 +398,7 @@ static void draw_footer(void)
 {
 	const char *hints = (view == VIEW_LIST)
 				    ? "X details   Triangle sort   L R category   Select sync"
-				    : "O back";
+				    : "X install   O back";
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
 			      FOOTER_HEIGHT, COLOR_PANEL);
@@ -550,6 +551,90 @@ static void sync_catalog(void)
 	wait_for_button("Catalog updated", line, NULL);
 }
 
+static int unpack_progress(uint32_t done, uint32_t total, const char *name,
+			   void *user)
+{
+	char line[128];
+
+	snprintf(line, sizeof(line), "%u of %u files", done, total);
+	frame_with_overlay((const char *)user, line, name);
+	return 1;
+}
+
+static void remember_installed(const vhdb_record *rec)
+{
+	vhdb_installed entry;
+
+	memset(&entry, 0, sizeof(entry));
+	entry.id = rec->id;
+	vhdb_titleid(rec, entry.titleid, sizeof(entry.titleid));
+	snprintf(entry.version, sizeof(entry.version), "%s",
+		 vhdb_str(&db, rec->version));
+	memcpy(entry.hash, rec->hash, 16);
+	entry.has_hash = 1;
+	if (rec->flags & VHDB_FLAG_HAS_EBOOT) {
+		memcpy(entry.eboot, rec->eboot, 16);
+		entry.has_eboot = 1;
+	}
+	if (rec->flags & VHDB_FLAG_HAS_AUX) {
+		memcpy(entry.aux, rec->aux, 16);
+		entry.has_aux = 1;
+	}
+
+	vhdb_installed_set(&installed, &entry);
+	vhdb_installed_save(&installed, INSTALLED_PATH);
+	count_categories();
+	rebuild_filter();
+}
+
+static void install_selected(void)
+{
+	const vhdb_record *rec;
+	char line[128];
+
+	if (filtered_count == 0)
+		return;
+
+	rec = vhdb_at(&db, filtered[selected]);
+
+	if (!vhdb_can_install(rec, VHDB_CLIENT_VITA)) {
+		wait_for_button("Not for the console",
+				"Plugins and PC tools are downloaded on a computer.",
+				"You place them yourself.");
+		return;
+	}
+	if (!vhdb_str(&db, rec->url)[0]) {
+		wait_for_button("No download link",
+				"This entry has nothing to fetch.", NULL);
+		return;
+	}
+
+	frame_with_overlay("Starting the network", NULL, NULL);
+	if (!vhdb_net_start() || !vhdb_net_online()) {
+		wait_for_button("No connection",
+				"Connect the console to Wi-Fi and try again.", NULL);
+		return;
+	}
+
+	snprintf(line, sizeof(line), "%s %s", vhdb_str(&db, rec->name),
+		 vhdb_str(&db, rec->version));
+
+	if (!vhdb_install_from_url(vhdb_str(&db, rec->url), rec->hash,
+				   download_progress, (void *)line, unpack_progress,
+				   (void *)"Installing")) {
+		wait_for_button("Install failed", vhdb_install_error(), NULL);
+		return;
+	}
+
+	remember_installed(rec);
+
+	if (vhdb_has_data_file(rec))
+		wait_for_button("Installed", line,
+				"It still needs its data files to run.");
+	else
+		wait_for_button("Installed", line, NULL);
+}
+
 static void move_selection(int delta)
 {
 	if (filtered_count == 0)
@@ -659,6 +744,8 @@ int main(void)
 		} else {
 			if (pressed & SCE_CTRL_CIRCLE)
 				view = VIEW_LIST;
+			if (pressed & SCE_CTRL_CROSS)
+				install_selected();
 		}
 
 		vita2d_start_drawing();
