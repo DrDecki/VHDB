@@ -23,6 +23,7 @@ add_executable(vhdb
   main.c
   net.c
   install.c
+  scan.c
   ${CMAKE_SOURCE_DIR}/../core/vhdb.c
   ${CMAKE_SOURCE_DIR}/../core/status.c
   ${CMAKE_SOURCE_DIR}/../core/sfo.c

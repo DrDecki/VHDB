@@ -3,6 +3,7 @@
 #include "vhdb_status.h"
 #include "vhdb_vitanet.h"
 #include "vhdb_vitainstall.h"
+#include "vhdb_vitascan.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -397,7 +398,7 @@ static void draw_detail(void)
 static void draw_footer(void)
 {
 	const char *hints = (view == VIEW_LIST)
-				    ? "X details   Triangle sort   L R category   Select sync"
+				    ? "X details   L R category   Select sync   Start scan"
 				    : "X install   O back";
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
@@ -635,6 +636,35 @@ static void install_selected(void)
 		wait_for_button("Installed", line, NULL);
 }
 
+static void scan_progress(int done, const char *name, void *user)
+{
+	char line[96];
+
+	snprintf(line, sizeof(line), "%d found so far", done);
+	frame_with_overlay((const char *)user, line, name);
+}
+
+static void scan_console(void)
+{
+	char line[96];
+	int matched;
+
+	matched = vhdb_vita_scan(&db, &installed, scan_progress,
+				 (void *)"Reading the console");
+	vhdb_installed_save(&installed, INSTALLED_PATH);
+	count_categories();
+	rebuild_filter();
+
+	if (matched < 0) {
+		wait_for_button("Cannot read ux0:app", "Nothing was changed.", NULL);
+		return;
+	}
+
+	snprintf(line, sizeof(line), "%d apps here are in the catalog", matched);
+	wait_for_button("Console checked", line,
+			"Versions now come from the files themselves.");
+}
+
 static void move_selection(int delta)
 {
 	if (filtered_count == 0)
@@ -705,6 +735,8 @@ int main(void)
 		fail("Out of memory.", "The catalog is too large to index.");
 
 	vhdb_installed_load(&installed, INSTALLED_PATH);
+	if (vhdb_prune_installed(&installed))
+		vhdb_installed_save(&installed, INSTALLED_PATH);
 
 	count_categories();
 	rebuild_filter();
@@ -741,6 +773,8 @@ int main(void)
 				view = VIEW_DETAIL;
 			if (pressed & SCE_CTRL_SELECT)
 				sync_catalog();
+			if (pressed & SCE_CTRL_START)
+				scan_console();
 		} else {
 			if (pressed & SCE_CTRL_CIRCLE)
 				view = VIEW_LIST;
