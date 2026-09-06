@@ -193,20 +193,30 @@ def main():
 
         record = {"vpk": vpk_hash, "eboot": "", "aux": "", "aux_kind": 0}
 
-        for name in ("eboot.bin", "EBOOT.PBP"):
-            if name in entries:
-                digest = member_md5(url, entries[name])
-                if digest:
-                    record["eboot"] = digest
+        target = None
+        for name in sorted(entries, key=len):
+            lowered = name.lower()
+            if lowered.endswith("eboot.bin") or lowered.endswith("eboot.pbp"):
+                target = name
                 break
+        if target:
+            digest = member_md5(url, entries[target])
+            if digest:
+                record["eboot"] = digest
 
-        for name, kind in AUX_FILES:
-            if name in entries:
-                digest = member_md5(url, entries[name])
-                if digest:
-                    record["aux"] = digest
-                    record["aux_kind"] = kind
-                break
+        for suffix, kind in AUX_FILES:
+            match = None
+            for name in sorted(entries, key=len):
+                if name.lower().endswith(suffix.lower()):
+                    match = name
+                    break
+            if not match:
+                continue
+            digest = member_md5(url, entries[match])
+            if digest:
+                record["aux"] = digest
+                record["aux_kind"] = kind
+            break
 
         if not record["eboot"] and not record["aux"]:
             failed += 1
