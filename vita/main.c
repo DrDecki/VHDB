@@ -4,6 +4,7 @@
 #include "vhdb_vitanet.h"
 #include "vhdb_vitainstall.h"
 #include "vhdb_vitascan.h"
+#include "vhdb_icons.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -245,11 +246,11 @@ static void draw_sidebar(void)
 			vita2d_draw_rectangle(0, y - 22, 3, 32, COLOR_ACCENT);
 		}
 		text(20, y, color, 1.0f, category_names[i]);
-		textf(SIDEBAR_WIDTH - 46, y, COLOR_MUTED, 0.9f, "%d",
+		textf(SIDEBAR_WIDTH - 46, y, COLOR_MUTED, 1.0f, "%d",
 		      category_counts[i]);
 	}
 
-	text(20, 30, COLOR_ACCENT, 1.1f, "VHDB");
+	text(20, 30, COLOR_ACCENT, 1.0f, "VHDB");
 }
 
 static void draw_list(void)
@@ -257,7 +258,7 @@ static void draw_list(void)
 	int row;
 	char line[256];
 
-	textf(SIDEBAR_WIDTH + 24, 30, COLOR_MUTED, 0.9f, "%s, %u entries, sorted by %s",
+	textf(SIDEBAR_WIDTH + 24, 30, COLOR_MUTED, 1.0f, "%s, %u entries, sorted by %s",
 	      category_names[category], filtered_count,
 	      sort_by_date ? "date" : "name");
 
@@ -293,16 +294,55 @@ static void draw_list(void)
 		clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.0f, 380);
 		text(SIDEBAR_WIDTH + 24, y + 22, COLOR_TEXT, 1.0f, line);
 
-		clip_text(line, sizeof(line), vhdb_str(&db, rec->author), 0.85f, 240);
-		textf(SIDEBAR_WIDTH + 24, y + 40, COLOR_MUTED, 0.85f, "%s  %s", line,
+		clip_text(line, sizeof(line), vhdb_str(&db, rec->author), 1.0f, 240);
+		textf(SIDEBAR_WIDTH + 24, y + 40, COLOR_MUTED, 1.0f, "%s  %s", line,
 		      vhdb_str(&db, rec->version));
 
-		text(SCREEN_WIDTH - 20 - vita2d_pgf_text_width(font, 0.9f, label),
-		     y + 28, status_color(&status, can_install), 0.9f, label);
+		text(SCREEN_WIDTH - 20 - vita2d_pgf_text_width(font, 1.0f, label),
+		     y + 28, status_color(&status, can_install), 1.0f, label);
 
 		vita2d_draw_rectangle(SIDEBAR_WIDTH + 24, y + ROW_HEIGHT - 1,
 				      SCREEN_WIDTH - SIDEBAR_WIDTH - 44, 1, COLOR_RULE);
 	}
+}
+
+static void draw_wrapped(const char *value, int x, int *y, int width, int lines,
+			 float scale, unsigned int color)
+{
+	char line[256];
+	int drawn = 0;
+
+	while (*value && drawn < lines) {
+		size_t length = 0;
+		size_t best = 0;
+
+		while (value[length] && value[length] != '\n' &&
+		       length + 1 < sizeof(line)) {
+			line[length] = value[length];
+			line[length + 1] = 0;
+			if (vita2d_pgf_text_width(font, scale, line) > width)
+				break;
+			if (value[length] == ' ')
+				best = length;
+			length++;
+		}
+
+		if (value[length] && value[length] != '\n' && best > 0)
+			length = best;
+
+		memcpy(line, value, length);
+		line[length] = 0;
+		text(x, *y, color, scale, line);
+		*y += (int)(26 * scale) + 4;
+		drawn++;
+
+		value += length;
+		while (*value == ' ' || *value == '\n')
+			value++;
+	}
+
+	if (*value && drawn == lines)
+		text(x, *y, COLOR_MUTED, scale * 1.0f, "...");
 }
 
 static void draw_needs(const vhdb_record *rec, int x, int *y)
@@ -315,14 +355,15 @@ static void draw_needs(const vhdb_record *rec, int x, int *y)
 		const char *plain = vhdb_str(&db, rec->requirements);
 		if (!plain[0])
 			return;
-		text(x, *y, COLOR_MUTED, 0.9f, "Requirements");
+		text(x, *y, COLOR_MUTED, 1.0f, "Requirements");
 		*y += 24;
-		textf(x, *y, COLOR_TEXT, 0.9f, "%s", plain);
-		*y += 24;
+		draw_wrapped(plain, x + 16, y, SCREEN_WIDTH - x - 50, 4, 1.0f,
+			     COLOR_TEXT);
+		*y += 6;
 		return;
 	}
 
-	text(x, *y, COLOR_MUTED, 0.9f, "Requirements");
+	text(x, *y, COLOR_MUTED, 1.0f, "Requirements");
 	*y += 24;
 
 	for (i = 0; i < total; i++) {
@@ -330,9 +371,14 @@ static void draw_needs(const vhdb_record *rec, int x, int *y)
 
 		if (!vhdb_needs_get(needs, i, &need))
 			continue;
-		textf(x + 16, *y, COLOR_TEXT, 0.9f, "%s%s%s", need.text,
-		      need.path[0] ? "   " : "", need.path);
-		*y += 22;
+		{
+			char entry[384];
+
+			snprintf(entry, sizeof(entry), "%s%s%s", need.text,
+				 need.path[0] ? "   " : "", need.path);
+			draw_wrapped(entry, x + 16, y, SCREEN_WIDTH - x - 50, 2, 1.0f,
+				     COLOR_TEXT);
+		}
 	}
 	*y += 6;
 }
@@ -353,43 +399,49 @@ static void draw_detail(void)
 	status_for(rec, &status);
 	vhdb_titleid(rec, titleid, sizeof(titleid));
 
-	clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.3f, 700);
-	text(x, y, COLOR_TEXT, 1.3f, line);
+	{
+		vita2d_texture *icon = vhdb_icon_for(filtered[selected]);
+
+		if (icon)
+			vita2d_draw_texture(icon, (float)(SCREEN_WIDTH - 150), 34.0f);
+	}
+
+	clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.0f, 500);
+	text(x, y, COLOR_TEXT, 1.0f, line);
 	y += 34;
 
-	textf(x, y, COLOR_MUTED, 0.9f, "%s   %s   %s   %.1f MB",
+	textf(x, y, COLOR_MUTED, 1.0f, "%s   %s   %s   %.1f MB",
 	      vhdb_str(&db, rec->version), vhdb_str(&db, rec->author),
 	      vhdb_type_name(rec->type), (double)rec->size / 1048576.0);
 	y += 22;
 
-	textf(x, y, COLOR_MUTED, 0.9f, "%s   released %u   id %u",
+	textf(x, y, COLOR_MUTED, 1.0f, "%s   released %u   id %u",
 	      titleid[0] ? titleid : "no title id", rec->date, rec->id);
 	y += 30;
 
 	text(x, y, status_color(&status, vhdb_can_install(rec, VHDB_CLIENT_VITA)),
 	     1.0f, vhdb_list_label(rec, &status, VHDB_CLIENT_VITA));
 	if (status.by_content)
-		text(x + 200, y, COLOR_MUTED, 0.85f, "checked by file contents");
+		text(x + 200, y, COLOR_MUTED, 1.0f, "checked by file contents");
 	y += 30;
 
-	vita2d_draw_rectangle(x, y, SCREEN_WIDTH - x - 20, 1, COLOR_RULE);
+	vita2d_draw_rectangle(x, y, SCREEN_WIDTH - x - 178, 1, COLOR_RULE);
 	y += 24;
 
-	clip_text(line, sizeof(line), vhdb_str(&db, rec->long_description), 0.9f,
-		  SCREEN_WIDTH - x - 30);
-	text(x, y, COLOR_TEXT, 0.9f, line);
-	y += 32;
+	draw_wrapped(vhdb_str(&db, rec->long_description), x, &y,
+		     SCREEN_WIDTH - x - 30, 8, 1.0f, COLOR_TEXT);
+	y += 10;
 
 	draw_needs(rec, x, &y);
 
 	if (vhdb_has_data_file(rec)) {
-		textf(x, y, COLOR_WARN, 0.9f, "Needs a data file, %.1f MB",
+		textf(x, y, COLOR_WARN, 1.0f, "Needs a data file, %.1f MB",
 		      (double)rec->data_size / 1048576.0);
 		y += 24;
 	}
 
 	if (rec->aux_kind) {
-		textf(x, y, COLOR_MUTED, 0.85f, "Engine: %s",
+		textf(x, y, COLOR_MUTED, 1.0f, "Engine: %s",
 		      vhdb_aux_name(rec->aux_kind));
 		y += 22;
 	}
@@ -403,8 +455,8 @@ static void draw_footer(void)
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
 			      FOOTER_HEIGHT, COLOR_PANEL);
-	text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, COLOR_MUTED, 0.85f, hints);
-	textf(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 12, COLOR_MUTED, 0.85f,
+	text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f, hints);
+	textf(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f,
 	      "built %u", db.header ? db.header->built : 0);
 }
 
@@ -419,11 +471,11 @@ static void overlay(const char *title, const char *line1, const char *line2)
 	vita2d_draw_rectangle(x, y, width, height, COLOR_PANEL);
 	vita2d_draw_rectangle(x, y, width, 3, COLOR_ACCENT);
 
-	text(x + 28, y + 48, COLOR_TEXT, 1.1f, title);
+	text(x + 28, y + 48, COLOR_TEXT, 1.0f, title);
 	if (line1)
-		text(x + 28, y + 88, COLOR_MUTED, 0.95f, line1);
+		text(x + 28, y + 88, COLOR_MUTED, 1.0f, line1);
 	if (line2)
-		text(x + 28, y + 116, COLOR_MUTED, 0.95f, line2);
+		text(x + 28, y + 116, COLOR_MUTED, 1.0f, line2);
 }
 
 static void frame_with_overlay(const char *title, const char *line1,
@@ -699,9 +751,9 @@ static void fail(const char *first, const char *second)
 	while (1) {
 		vita2d_start_drawing();
 		vita2d_clear_screen();
-		text(60, 200, COLOR_TEXT, 1.1f, first);
-		text(60, 240, COLOR_MUTED, 0.95f, second);
-		text(60, 300, COLOR_MUTED, 0.9f, "Press the PS button to leave.");
+		text(60, 200, COLOR_TEXT, 1.0f, first);
+		text(60, 240, COLOR_MUTED, 1.0f, second);
+		text(60, 300, COLOR_MUTED, 1.0f, "Press the PS button to leave.");
 		vita2d_end_drawing();
 		vita2d_swap_buffers();
 	}
@@ -737,6 +789,8 @@ int main(void)
 	vhdb_installed_load(&installed, INSTALLED_PATH);
 	if (vhdb_prune_installed(&installed))
 		vhdb_installed_save(&installed, INSTALLED_PATH);
+
+	vhdb_icons_start(&db);
 
 	count_categories();
 	rebuild_filter();
@@ -796,6 +850,7 @@ int main(void)
 		vita2d_swap_buffers();
 	}
 
+	vhdb_icons_stop();
 	vhdb_net_stop();
 
 	vita2d_wait_rendering_done();
