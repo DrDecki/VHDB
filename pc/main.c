@@ -14,10 +14,10 @@ static vhdb_config config;
 
 static void usage(void)
 {
-	printf("vhdb, a client for the VitaHomebrewDB catalogue\n\n");
+	printf("vhdb, a client for the VitaHomebrewDB catalog\n\n");
 	printf("  vhdb setup              configure where downloads go\n");
 	printf("  vhdb config             show the current configuration\n");
-	printf("  vhdb sync               fetch the catalogue if it changed\n");
+	printf("  vhdb sync               fetch the catalog if it changed\n");
 	printf("  vhdb list [words]       list entries, filtered by words\n");
 	printf("  vhdb show <id>          show one entry in full\n");
 	printf("  vhdb install <id>       download and send to the console\n");
@@ -56,16 +56,16 @@ static int local_hash(const char *path, uint32_t *out)
 	return 1;
 }
 
-static int open_catalogue(vhdb_db *db)
+static int open_catalog(vhdb_db *db)
 {
 	char path[512];
 	int rc;
 
-	if (!vhdb_catalogue_file(path, sizeof(path)))
+	if (!vhdb_catalog_file(path, sizeof(path)))
 		return 0;
 	rc = vhdb_load(db, path, 0);
 	if (rc != VHDB_OK) {
-		printf("no catalogue yet (%s), run: vhdb sync\n", vhdb_error(rc));
+		printf("no catalog yet (%s), run: vhdb sync\n", vhdb_error(rc));
 		return 0;
 	}
 	return 1;
@@ -152,9 +152,9 @@ static int command_config(void)
 	vhdb_config_load(&config);
 	vhdb_config_file(path, sizeof(path));
 	printf("config      %s\n", path);
-	vhdb_catalogue_file(path, sizeof(path));
-	printf("catalogue   %s\n", path);
-	printf("url         %s\n", config.catalogue_url);
+	vhdb_catalog_file(path, sizeof(path));
+	printf("catalog   %s\n", path);
+	printf("url         %s\n", config.catalog_url);
 	printf("target      %s\n", vhdb_target_name(config.target));
 	if (config.target == VHDB_TARGET_FTP)
 		printf("console     %s:%d\n", config.host, config.port);
@@ -176,29 +176,29 @@ static int command_sync(int force)
 	vhdb_config_load(&config);
 	vhdb_config_dir(dir, sizeof(dir));
 	vhdb_make_dirs(dir);
-	vhdb_catalogue_file(path, sizeof(path));
+	vhdb_catalog_file(path, sizeof(path));
 
 	if (vhdb_net_init() != VHDB_NET_OK) {
 		printf("cannot start networking\n");
 		return 1;
 	}
 
-	if (!force && vhdb_net_head_bytes(config.catalogue_url, header,
+	if (!force && vhdb_net_head_bytes(config.catalog_url, header,
 					  sizeof(header)) == VHDB_NET_OK &&
 	    read_u32(header) == VHDB_MAGIC) {
 		remote = read_u32(header + 40);
 		if (local_hash(path, &local) && local == remote) {
-			printf("already current, catalogue %08x built %u\n",
+			printf("already current, catalog %08x built %u\n",
 			       local, read_u32(header + 8));
 			vhdb_net_shutdown();
 			return 0;
 		}
-		printf("catalogue changed, %u entries to fetch\n",
+		printf("catalog changed, %u entries to fetch\n",
 		       read_u32(header + 12));
 	}
 
 	printf("downloading\n");
-	if (vhdb_net_download(config.catalogue_url, path, 1) != VHDB_NET_OK) {
+	if (vhdb_net_download(config.catalog_url, path, 1) != VHDB_NET_OK) {
 		printf("download failed: %s\n", vhdb_net_last_error());
 		vhdb_net_shutdown();
 		return 1;
@@ -293,7 +293,7 @@ static int command_list(int argc, char **argv)
 			words[word_count++] = argv[i];
 	}
 
-	if (!open_catalogue(&db))
+	if (!open_catalog(&db))
 		return 1;
 
 	for (i = 0; i < (int)vhdb_count(&db); i++) {
@@ -360,7 +360,7 @@ static int command_show(const char *wanted)
 	const vhdb_record *found = NULL;
 	uint32_t i;
 
-	if (!open_catalogue(&db))
+	if (!open_catalog(&db))
 		return 1;
 
 	if (wanted[0] >= '0' && wanted[0] <= '9') {
@@ -478,7 +478,7 @@ static int command_install(int argc, char **argv)
 	}
 
 	vhdb_config_load(&config);
-	if (!open_catalogue(&db))
+	if (!open_catalog(&db))
 		return 1;
 
 	installed_path(path, sizeof(path));
@@ -521,7 +521,7 @@ static int command_scan(int rehash)
 	int ok;
 
 	vhdb_config_load(&config);
-	if (!open_catalogue(&db))
+	if (!open_catalog(&db))
 		return 1;
 
 	installed_path(path, sizeof(path));
@@ -556,7 +556,7 @@ static int command_installed(void)
 		vhdb_installed_free(&installed);
 		return 0;
 	}
-	if (!open_catalogue(&db)) {
+	if (!open_catalog(&db)) {
 		vhdb_installed_free(&installed);
 		return 1;
 	}
@@ -575,7 +575,7 @@ static int command_installed(void)
 			}
 		}
 		if (!rec) {
-			printf("%-40s %-12s %s\n", "gone from the catalogue",
+			printf("%-40s %-12s %s\n", "gone from the catalog",
 			       entry->version, entry->titleid);
 			continue;
 		}

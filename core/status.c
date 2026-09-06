@@ -65,23 +65,23 @@ static int is_blank_version(const char *s)
 	return 1;
 }
 
-int vhdb_version_compare(const char *installed, const char *catalogue)
+int vhdb_version_compare(const char *installed, const char *catalog)
 {
 	const char *a, *b;
 	int saw_number = 0;
 
-	if (!installed || !catalogue)
+	if (!installed || !catalog)
 		return VHDB_VER_UNKNOWN;
-	if (!installed[0] || !catalogue[0])
+	if (!installed[0] || !catalog[0])
 		return VHDB_VER_UNKNOWN;
-	if (is_blank_version(installed) || is_blank_version(catalogue))
+	if (is_blank_version(installed) || is_blank_version(catalog))
 		return VHDB_VER_UNKNOWN;
 
-	if (strcmp(installed, catalogue) == 0)
+	if (strcmp(installed, catalog) == 0)
 		return VHDB_VER_SAME;
 
 	a = skip_prefix(installed);
-	b = skip_prefix(catalogue);
+	b = skip_prefix(catalog);
 
 	for (;;) {
 		unsigned long na = 0, nb = 0;

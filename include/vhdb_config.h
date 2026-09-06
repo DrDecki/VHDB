@@ -8,7 +8,7 @@
 #define VHDB_TARGET_FOLDER 2
 
 typedef struct {
-	char catalogue_url[256];
+	char catalog_url[256];
 	int target;
 	char host[64];
 	int port;
@@ -22,7 +22,7 @@ typedef struct {
 
 int vhdb_config_dir(char *out, size_t size);
 int vhdb_config_file(char *out, size_t size);
-int vhdb_catalogue_file(char *out, size_t size);
+int vhdb_catalog_file(char *out, size_t size);
 int vhdb_make_dirs(const char *path);
 
 void vhdb_config_defaults(vhdb_config *cfg);

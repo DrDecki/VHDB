@@ -193,7 +193,7 @@ def build():
 
     count = len(records)
     if count == 0:
-        raise SystemExit("no entries found, run this inside the catalogue checkout")
+        raise SystemExit("no entries found, run this inside the catalog checkout")
 
     order_name = sorted(range(count), key=lambda i: (meta[i][0], i))
     order_date = sorted(range(count), key=lambda i: (-meta[i][1], meta[i][0]))

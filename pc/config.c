@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define VHDB_DEFAULT_URL "https://github.com/DrDecki/VitaHomebrewDB/releases/download/catalog/vhdb.bin"
+#define VHDB_DEFAULT_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.bin"
 
 static const char *home_dir(void)
 {
@@ -32,7 +32,7 @@ int vhdb_config_file(char *out, size_t size)
 	return snprintf(out, size, "%s/config.txt", dir) < (int)size;
 }
 
-int vhdb_catalogue_file(char *out, size_t size)
+int vhdb_catalog_file(char *out, size_t size)
 {
 	char dir[256];
 
@@ -65,7 +65,7 @@ int vhdb_make_dirs(const char *path)
 void vhdb_config_defaults(vhdb_config *cfg)
 {
 	memset(cfg, 0, sizeof(*cfg));
-	snprintf(cfg->catalogue_url, sizeof(cfg->catalogue_url), "%s", VHDB_DEFAULT_URL);
+	snprintf(cfg->catalog_url, sizeof(cfg->catalog_url), "%s", VHDB_DEFAULT_URL);
 	cfg->target = VHDB_TARGET_NONE;
 	cfg->port = 1337;
 	snprintf(cfg->vpk, sizeof(cfg->vpk), "ux0:/VPK");
@@ -95,7 +95,7 @@ static void trim(char *s)
 static void assign(vhdb_config *cfg, const char *key, const char *value)
 {
 	if (strcmp(key, "url") == 0)
-		snprintf(cfg->catalogue_url, sizeof(cfg->catalogue_url), "%s", value);
+		snprintf(cfg->catalog_url, sizeof(cfg->catalog_url), "%s", value);
 	else if (strcmp(key, "kind") == 0) {
 		if (strcmp(value, "ftp") == 0)
 			cfg->target = VHDB_TARGET_FTP;
@@ -175,7 +175,7 @@ int vhdb_config_save(const vhdb_config *cfg)
 	if (!file)
 		return 0;
 
-	fprintf(file, "url = %s\n\n[target]\n", cfg->catalogue_url);
+	fprintf(file, "url = %s\n\n[target]\n", cfg->catalog_url);
 	fprintf(file, "kind = %s\n", vhdb_target_name(cfg->target));
 	fprintf(file, "host = %s\n", cfg->host);
 	fprintf(file, "port = %d\n", cfg->port);

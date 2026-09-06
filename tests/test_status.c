@@ -6,14 +6,14 @@
 
 static int failures = 0;
 
-static void expect_cmp(const char *installed, const char *catalogue, int want)
+static void expect_cmp(const char *installed, const char *catalog, int want)
 {
-	int got = vhdb_version_compare(installed, catalogue);
+	int got = vhdb_version_compare(installed, catalog);
 	static const char *names[] = {"SAME", "OLDER", "NEWER", "UNKNOWN"};
 
 	if (got != want) {
 		printf("FAIL compare(%s, %s) = %s, expected %s\n", installed,
-		       catalogue, names[got], names[want]);
+		       catalog, names[got], names[want]);
 		failures++;
 	}
 }

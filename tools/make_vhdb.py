@@ -11,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-CATALOGUE = os.environ.get("VHDB_CATALOGUE") or os.path.expanduser("~/vitadbtoo/VitaHomebrewDB")
+CATALOG = os.environ.get("VHDB_CATALOG") or os.path.expanduser("~/vitadbtoo/VitaHomebrewDB")
 OUT = os.path.join(REPO, "vhdb.bin")
 
 MAGIC = b"VHDB"
@@ -116,7 +116,7 @@ def build():
     missing = []
 
     for filename, platform, label in SOURCES:
-        path = os.path.join(CATALOGUE, filename)
+        path = os.path.join(CATALOG, filename)
         entries = load_catalog(path)
         if entries is None:
             missing.append(filename)
@@ -198,7 +198,7 @@ def build():
 
     count = len(records)
     if count == 0:
-        raise SystemExit("no entries found, run this inside the catalogue checkout")
+        raise SystemExit("no entries found, run this inside the catalog checkout")
 
     order_name = sorted(range(count), key=lambda i: (meta[i][0], i))
     order_date = sorted(range(count), key=lambda i: (-meta[i][1], meta[i][0]))

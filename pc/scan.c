@@ -126,7 +126,7 @@ int vhdb_pc_scan(const vhdb_config *cfg, const vhdb_db *db,
 					continue;
 				}
 				unknown++;
-				printf("  %-12s %-38s not in the catalogue\n",
+				printf("  %-12s %-38s not in the catalog\n",
 				       sfo.title_id, sfo.title);
 				continue;
 			}
@@ -160,7 +160,7 @@ int vhdb_pc_scan(const vhdb_config *cfg, const vhdb_db *db,
 		}
 	}
 
-	printf("\n%d apps on the console, %d in the catalogue, %d retail, %d unknown\n",
+	printf("\n%d apps on the console, %d in the catalog, %d retail, %d unknown\n",
 	       found, matched, retail, unknown);
 	printf("%d checked by file contents\n", hashed);
 	return 1;
