@@ -1,0 +1,6 @@
+vhdb
+test_vhdb
+test_status
+vhdb.bin
+*.o
+*.part
