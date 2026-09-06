@@ -45,6 +45,8 @@
 #define VERSION_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/version.txt"
 #define CLIENT_VPK_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.vpk"
 #define VERSION_PATH DATA_DIR "/version.txt"
+#define DATA_ZIP DATA_DIR "/data.zip"
+#define DATA_TARGET "ux0:data"
 #define CLIENT_VERSION "1.0"
 
 #define VIEW_LIST 0
@@ -250,8 +252,14 @@ static void draw_sidebar(void)
 			vita2d_draw_rectangle(0, y - 22, 3, 32, COLOR_ACCENT);
 		}
 		text(20, y, color, 1.0f, category_names[i]);
-		textf(SIDEBAR_WIDTH - 46, y, COLOR_MUTED, 1.0f, "%d",
-		      category_counts[i]);
+		{
+			char amount[16];
+
+			snprintf(amount, sizeof(amount), "%d", category_counts[i]);
+			text(SIDEBAR_WIDTH - 20 -
+				     vita2d_pgf_text_width(font, 1.0f, amount),
+			     y, COLOR_MUTED, 1.0f, amount);
+		}
 	}
 
 	text(20, 30, COLOR_ACCENT, 1.0f, "VHDB");
@@ -449,7 +457,7 @@ static void draw_detail(void)
 	draw_needs(rec, x, &y);
 
 	if (vhdb_has_data_file(rec)) {
-		textf(x, y, COLOR_WARN, 1.0f, "Needs a data file, %.1f MB",
+		textf(x, y, COLOR_WARN, 1.0f, "Needs a data file, %.1f MB, press Square",
 		      (double)rec->data_size / 1048576.0);
 		y += 24;
 	}
@@ -463,15 +471,45 @@ static void draw_detail(void)
 
 static void draw_footer(void)
 {
-	const char *hints = (view == VIEW_LIST)
-				    ? "X details   L R category   Select sync   Start scan"
-				    : "X install   O back";
+	const char *hints;
+
+	if (view == VIEW_LIST) {
+		hints = "X details   L R category   Select sync   Start scan";
+	} else if (filtered_count == 0) {
+		hints = "O back";
+	} else {
+		const vhdb_record *rec = vhdb_at(&db, filtered[selected]);
+		vhdb_status status;
+
+		status_for(rec, &status);
+
+		if (!vhdb_can_install(rec, VHDB_CLIENT_VITA))
+			hints = "O back";
+		else if (status.state == VHDB_STATE_UPDATE)
+			hints = vhdb_has_data_file(rec)
+					? "X update   Square data files   O back"
+					: "X update   O back";
+		else if (status.state == VHDB_STATE_NOT_INSTALLED)
+			hints = vhdb_has_data_file(rec)
+					? "X install   Square data files   O back"
+					: "X install   O back";
+		else
+			hints = vhdb_has_data_file(rec)
+					? "X reinstall   Square data files   O back"
+					: "X reinstall   O back";
+	}
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
 			      FOOTER_HEIGHT, COLOR_PANEL);
 	text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f, hints);
-	textf(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f,
-	      "built %u", db.header ? db.header->built : 0);
+	{
+		char stamp[32];
+
+		snprintf(stamp, sizeof(stamp), "built %u",
+			 db.header ? db.header->built : 0);
+		text(SCREEN_WIDTH - 20 - vita2d_pgf_text_width(font, 1.0f, stamp),
+		     SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f, stamp);
+	}
 }
 
 static void overlay(const char *title, const char *line1, const char *line2)
@@ -654,6 +692,108 @@ static void remember_installed(const vhdb_record *rec)
 	rebuild_filter();
 }
 
+static int confirm(const char *title, const char *line1, const char *line2)
+{
+	SceCtrlData pad;
+	unsigned int previous = 0xFFFFFFFF;
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		if (pressed & SCE_CTRL_CROSS)
+			return 1;
+		if (pressed & SCE_CTRL_CIRCLE)
+			return 0;
+
+		frame_with_overlay(title, line1, line2);
+	}
+}
+
+static int fetch_data_for(const vhdb_record *rec, int ask)
+{
+	char names[6][64];
+	char line[160];
+	char detail[160];
+	int count;
+
+	if (!vhdb_has_data_file(rec))
+		return 1;
+
+	frame_with_overlay("Starting the network", NULL, NULL);
+	if (!vhdb_net_start() || !vhdb_net_online()) {
+		wait_for_button("No connection",
+				"Connect the console to Wi-Fi and try again.", NULL);
+		return 0;
+	}
+
+	snprintf(line, sizeof(line), "Data for %s", vhdb_str(&db, rec->name));
+	if (!vhdb_net_fetch(vhdb_str(&db, rec->data_url), DATA_ZIP,
+			    download_progress, (void *)line)) {
+		wait_for_button("The data file failed", vhdb_net_error(), NULL);
+		return 0;
+	}
+
+	count = vhdb_zip_top_level(DATA_ZIP, names, 6);
+	if (count <= 0) {
+		sceIoRemove(DATA_ZIP);
+		wait_for_button("Cannot read the archive",
+				"It may not be a zip file.", NULL);
+		return 0;
+	}
+
+	snprintf(line, sizeof(line), "Unpack into %s", DATA_TARGET);
+	if (count == 1)
+		snprintf(detail, sizeof(detail), "It holds %s", names[0]);
+	else if (count == 2)
+		snprintf(detail, sizeof(detail), "It holds %s and %s", names[0],
+			 names[1]);
+	else
+		snprintf(detail, sizeof(detail), "It holds %s, %s and %d more",
+			 names[0], names[1], count - 2);
+
+	if (ask && !confirm(detail, line, "X unpacks, O keeps nothing")) {
+		sceIoRemove(DATA_ZIP);
+		return 0;
+	}
+
+	if (!vhdb_zip_extract(DATA_ZIP, DATA_TARGET, unpack_progress, (void *)detail)) {
+		sceIoRemove(DATA_ZIP);
+		wait_for_button("Unpacking failed", vhdb_zip_error(), NULL);
+		return 0;
+	}
+
+	sceIoRemove(DATA_ZIP);
+	count_categories();
+	rebuild_filter();
+
+	if (ask) {
+		snprintf(line, sizeof(line), "%s is ready", vhdb_str(&db, rec->name));
+		wait_for_button("Data unpacked", line, NULL);
+	}
+	return 1;
+}
+
+static void install_data_file(void)
+{
+	const vhdb_record *rec;
+
+	if (filtered_count == 0)
+		return;
+
+	rec = vhdb_at(&db, filtered[selected]);
+
+	if (!vhdb_has_data_file(rec)) {
+		wait_for_button("No data file", "This one runs on its own.", NULL);
+		return;
+	}
+
+	fetch_data_for(rec, 1);
+}
+
 static void install_selected(void)
 {
 	const vhdb_record *rec;
@@ -695,11 +835,13 @@ static void install_selected(void)
 
 	remember_installed(rec);
 
-	if (vhdb_has_data_file(rec))
-		wait_for_button("Installed", line,
-				"It still needs its data files to run.");
-	else
-		wait_for_button("Installed", line, NULL);
+	if (vhdb_has_data_file(rec) && !fetch_data_for(rec, 0)) {
+		wait_for_button("Installed without its data", line,
+				"Press Square to try the data files again.");
+		return;
+	}
+
+	wait_for_button("Installed", line, NULL);
 }
 
 static void scan_progress(int done, const char *name, void *user)
@@ -974,6 +1116,8 @@ int main(void)
 				view = VIEW_LIST;
 			if (pressed & SCE_CTRL_CROSS)
 				install_selected();
+			if (pressed & SCE_CTRL_SQUARE)
+				install_data_file();
 		}
 
 		vita2d_start_drawing();
