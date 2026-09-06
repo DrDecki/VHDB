@@ -1,6 +1,7 @@
 #include "vhdb.h"
 #include "vhdb_installed.h"
 #include "vhdb_status.h"
+#include "vhdb_vitanet.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -37,6 +38,7 @@
 #define DATA_DIR "ux0:data/vhdb"
 #define CATALOG_PATH DATA_DIR "/vhdb.bin"
 #define INSTALLED_PATH DATA_DIR "/installed.txt"
+#define CATALOG_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.bin"
 
 #define VIEW_LIST 0
 #define VIEW_DETAIL 1
@@ -394,7 +396,7 @@ static void draw_detail(void)
 static void draw_footer(void)
 {
 	const char *hints = (view == VIEW_LIST)
-				    ? "X details   Triangle sort   L R category"
+				    ? "X details   Triangle sort   L R category   Select sync"
 				    : "O back";
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
@@ -402,6 +404,150 @@ static void draw_footer(void)
 	text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, COLOR_MUTED, 0.85f, hints);
 	textf(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 12, COLOR_MUTED, 0.85f,
 	      "built %u", db.header ? db.header->built : 0);
+}
+
+static void overlay(const char *title, const char *line1, const char *line2)
+{
+	int width = 620;
+	int height = 180;
+	int x = (SCREEN_WIDTH - width) / 2;
+	int y = (SCREEN_HEIGHT - height) / 2;
+
+	vita2d_draw_rectangle(x - 2, y - 2, width + 4, height + 4, COLOR_RULE);
+	vita2d_draw_rectangle(x, y, width, height, COLOR_PANEL);
+	vita2d_draw_rectangle(x, y, width, 3, COLOR_ACCENT);
+
+	text(x + 28, y + 48, COLOR_TEXT, 1.1f, title);
+	if (line1)
+		text(x + 28, y + 88, COLOR_MUTED, 0.95f, line1);
+	if (line2)
+		text(x + 28, y + 116, COLOR_MUTED, 0.95f, line2);
+}
+
+static void frame_with_overlay(const char *title, const char *line1,
+			       const char *line2)
+{
+	vita2d_start_drawing();
+	vita2d_clear_screen();
+	draw_sidebar();
+	draw_list();
+	draw_footer();
+	overlay(title, line1, line2);
+	vita2d_end_drawing();
+	vita2d_swap_buffers();
+}
+
+static int download_progress(uint64_t done, uint64_t total, void *user)
+{
+	char line[96];
+	SceCtrlData pad;
+
+	if (total > 0)
+		snprintf(line, sizeof(line), "%.1f of %.1f MB",
+			 (double)done / 1048576.0, (double)total / 1048576.0);
+	else
+		snprintf(line, sizeof(line), "%.1f MB", (double)done / 1048576.0);
+
+	frame_with_overlay((const char *)user, line, "Circle cancels");
+
+	sceCtrlPeekBufferPositive(0, &pad, 1);
+	return (pad.buttons & SCE_CTRL_CIRCLE) ? 0 : 1;
+}
+
+static void wait_for_button(const char *title, const char *line1,
+			    const char *line2)
+{
+	SceCtrlData pad;
+	unsigned int previous = 0xFFFFFFFF;
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		if (pressed & (SCE_CTRL_CROSS | SCE_CTRL_CIRCLE))
+			break;
+
+		frame_with_overlay(title, line1, line2);
+	}
+}
+
+static uint32_t read_u32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+	       ((uint32_t)p[3] << 24);
+}
+
+static int reload_catalog(void)
+{
+	free(filtered);
+	filtered = NULL;
+	vhdb_free(&db);
+
+	if (vhdb_load(&db, CATALOG_PATH, 1) != VHDB_OK)
+		return 0;
+
+	filtered = (uint32_t *)malloc(sizeof(uint32_t) * vhdb_count(&db));
+	if (!filtered)
+		return 0;
+
+	count_categories();
+	selected = 0;
+	scroll = 0;
+	rebuild_filter();
+	return 1;
+}
+
+static void sync_catalog(void)
+{
+	uint8_t header[VHDB_HEADER_SIZE];
+	char line[96];
+
+	frame_with_overlay("Checking for a new catalog", "Starting the network",
+			   NULL);
+
+	if (!vhdb_net_start()) {
+		wait_for_button("Network trouble", vhdb_net_error(), NULL);
+		return;
+	}
+	if (!vhdb_net_online()) {
+		wait_for_button("No connection",
+				"Connect the console to Wi-Fi and try again.", NULL);
+		return;
+	}
+
+	if (vhdb_net_head(CATALOG_URL, header, sizeof(header)) &&
+	    read_u32(header) == VHDB_MAGIC) {
+		if (db.header && read_u32(header + 40) == db.header->catalog_hash) {
+			snprintf(line, sizeof(line), "%u entries, built %u",
+				 read_u32(header + 12), read_u32(header + 8));
+			wait_for_button("Already up to date", line, NULL);
+			return;
+		}
+		snprintf(line, sizeof(line), "%u entries waiting",
+			 read_u32(header + 12));
+	} else {
+		snprintf(line, sizeof(line), "%s", vhdb_net_error());
+	}
+
+	if (!vhdb_net_fetch(CATALOG_URL, CATALOG_PATH, download_progress,
+			    (void *)"Downloading the catalog")) {
+		wait_for_button("Download failed", vhdb_net_error(), NULL);
+		reload_catalog();
+		return;
+	}
+
+	if (!reload_catalog()) {
+		wait_for_button("The catalog did not verify",
+				"The old one is gone, please sync again.", NULL);
+		return;
+	}
+
+	snprintf(line, sizeof(line), "%u entries, built %u", vhdb_count(&db),
+		 db.header->built);
+	wait_for_button("Catalog updated", line, NULL);
 }
 
 static void move_selection(int delta)
@@ -508,6 +654,8 @@ int main(void)
 			}
 			if ((pressed & SCE_CTRL_CROSS) && filtered_count > 0)
 				view = VIEW_DETAIL;
+			if (pressed & SCE_CTRL_SELECT)
+				sync_catalog();
 		} else {
 			if (pressed & SCE_CTRL_CIRCLE)
 				view = VIEW_LIST;
@@ -526,6 +674,8 @@ int main(void)
 		vita2d_end_drawing();
 		vita2d_swap_buffers();
 	}
+
+	vhdb_net_stop();
 
 	vita2d_wait_rendering_done();
 	vita2d_fini();

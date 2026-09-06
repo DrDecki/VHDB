@@ -21,6 +21,7 @@ include_directories(${CMAKE_SOURCE_DIR}/../include)
 
 add_executable(vhdb
   main.c
+  net.c
   ${CMAKE_SOURCE_DIR}/../core/vhdb.c
   ${CMAKE_SOURCE_DIR}/../core/status.c
   ${CMAKE_SOURCE_DIR}/../core/sfo.c
@@ -38,6 +39,12 @@ target_link_libraries(vhdb
   SceAppMgr_stub
   ScePgf_stub
   SceIofilemgr_stub
+  curl
+  ssl
+  crypto
+  zstd
+  SceNet_stub
+  SceNetCtl_stub
   freetype
   png
   jpeg
