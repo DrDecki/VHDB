@@ -54,7 +54,7 @@ typedef struct {
 
 typedef int (*vhdb_path_exists_fn)(const char *path, void *user);
 
-int vhdb_version_compare(const char *installed, const char *catalogue);
+int vhdb_version_compare(const char *installed, const char *catalog);
 const char *vhdb_state_name(int state);
 
 int vhdb_needs_count(const char *needs);

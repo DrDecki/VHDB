@@ -156,7 +156,7 @@ int vhdb_pc_install(const vhdb_config *cfg, const vhdb_db *db,
 			}
 			if (memcmp(digest, rec->hash, 16) != 0) {
 				vhdb_md5_hex(digest, digest_hex);
-				printf("  checksum does not match the catalogue\n");
+				printf("  checksum does not match the catalog\n");
 				printf("  got %s, keeping nothing\n", digest_hex);
 				remove(local);
 				return 0;
@@ -165,7 +165,7 @@ int vhdb_pc_install(const vhdb_config *cfg, const vhdb_db *db,
 			has_hash = 1;
 		} else if (vhdb_md5_file(local, digest)) {
 			has_hash = 1;
-			printf("  no checksum in the catalogue, recorded ours\n");
+			printf("  no checksum in the catalog, recorded ours\n");
 		}
 	}
 

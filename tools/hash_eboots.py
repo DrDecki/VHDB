@@ -11,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-CATALOGUE = os.environ.get("VHDB_CATALOGUE") or os.path.expanduser("~/vitadbtoo/VitaHomebrewDB")
+CATALOG = os.environ.get("VHDB_CATALOG") or os.path.expanduser("~/vitadbtoo/VitaHomebrewDB")
 CACHE = os.path.join(REPO, "eboot_hashes.json")
 
 AUX_FILES = [
@@ -138,10 +138,10 @@ def member_md5(url, entry):
     return hashlib.md5(payload).hexdigest()
 
 
-def load_catalogues():
+def load_catalogs():
     apps = []
     for name in SOURCES:
-        path = os.path.join(CATALOGUE, name)
+        path = os.path.join(CATALOG, name)
         if not os.path.exists(path):
             continue
         with open(path, "r", encoding="utf-8") as handle:
@@ -160,7 +160,7 @@ def main():
         with open(CACHE, "r", encoding="utf-8") as handle:
             cache = json.load(handle)
 
-    apps = load_catalogues()
+    apps = load_catalogs()
     done = 0
     skipped = 0
     failed = 0
