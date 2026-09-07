@@ -27,4 +27,9 @@ unsigned int vita2d_texture_get_stride(const vita2d_texture *texture);
 typedef unsigned int SceGxmTextureFormat;
 #define SCE_GXM_TEXTURE_FORMAT_A8B8G8R8 0x10004000
 SceGxmTextureFormat vita2d_texture_get_format(const vita2d_texture *texture);
+typedef struct vita2d_pvf vita2d_pvf;
+vita2d_pvf *vita2d_load_custom_pvf(const char *path);
+void vita2d_free_pvf(vita2d_pvf *font);
+int vita2d_pvf_draw_text(vita2d_pvf *font, int x, int y, unsigned int color, float scale, const char *text);
+int vita2d_pvf_text_width(vita2d_pvf *font, float scale, const char *text);
 #endif

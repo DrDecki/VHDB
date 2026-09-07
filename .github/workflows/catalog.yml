@@ -1,0 +1,88 @@
+name: catalog
+
+on:
+  schedule:
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/**"
+      - "core/**"
+      - "include/**"
+
+concurrency:
+  group: catalog
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out VHDB
+        uses: actions/checkout@v4
+
+      - name: Check out the catalog
+        uses: actions/checkout@v4
+        with:
+          repository: DrDecki/VitaHomebrewDB
+          path: catalog
+
+      - name: Hash the eboots that are still missing
+        env:
+          VHDB_CATALOG: ${{ github.workspace }}/catalog
+        run: |
+          timeout 40m python3 tools/hash_eboots.py 250 || true
+
+      - name: Build vhdb.bin
+        env:
+          VHDB_CATALOG: ${{ github.workspace }}/catalog
+        run: |
+          python3 tools/make_vhdb.py | tee build.log
+          test -s vhdb.bin
+
+      - name: Compare against the published one
+        id: compare
+        run: |
+          curl -sL -r 0-63 \
+            https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.bin \
+            -o published.head || true
+          python3 - <<'PY'
+          import os, struct
+
+          def read_hash(path, size):
+              if not os.path.exists(path) or os.path.getsize(path) < 64:
+                  return None
+              with open(path, 'rb') as f:
+                  head = f.read(64)
+              if head[:4] != b'VHDB':
+                  return None
+              return struct.unpack('<I', head[40:44])[0]
+
+          fresh = read_hash('vhdb.bin', 64)
+          live = read_hash('published.head', 64)
+          changed = fresh is not None and fresh != live
+          print('fresh %s, published %s, changed %s' % (fresh, live, changed))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('changed=%s\n' % ('yes' if changed else 'no'))
+          PY
+
+      - name: Publish
+        if: steps.compare.outputs.changed == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload catalog vhdb.bin --clobber
+          tail -n 12 build.log >> $GITHUB_STEP_SUMMARY
+
+      - name: Keep the new eboot hashes
+        run: |
+          if ! git diff --quiet eboot_hashes.json; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@users.noreply.github.com"
+            git add eboot_hashes.json
+            git commit -m "Hashed the eboots for entries that did not have them yet."
+            git push
+          fi

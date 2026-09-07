@@ -43,6 +43,7 @@ target_link_libraries(vhdb
   SceCommonDialog_stub
   SceAppMgr_stub
   ScePgf_stub
+  ScePvf_stub
   SceIofilemgr_stub
   ScePromoterUtil_stub
   curl
