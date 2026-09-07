@@ -61,16 +61,16 @@
 #define CATEGORY_UTILITIES 6
 #define CATEGORY_PLUGINS 7
 #define CATEGORY_PSP 8
-#define CATEGORY_TOOLS 9
-#define CATEGORY_ALL 10
-#define CATEGORY_COUNT 11
+#define CATEGORY_ALL 9
+#define CATEGORY_COUNT 10
 
 static const char *category_names[CATEGORY_COUNT] = {
 	"Updates", "Needs files", "Installed", "Games",   "Ports", "Emulators",
-	"Utilities", "Plugins",   "PSP",       "PC tools", "All"
+	"Utilities", "Plugins",   "PSP",       "All"
 };
 
 static vita2d_pgf *font;
+static vita2d_pvf *symbols;
 static vhdb_db db;
 static vhdb_installed_list installed;
 
@@ -83,6 +83,20 @@ static int scroll;
 static int view = VIEW_LIST;
 static int sort_by_date = 1;
 static int category_counts[CATEGORY_COUNT];
+
+#define GLYPH_CIRCLE "!"
+#define GLYPH_CROSS "\""
+#define GLYPH_SQUARE "#"
+#define GLYPH_L "0"
+#define GLYPH_R "1"
+#define GLYPH_SELECT "4"
+#define GLYPH_START "5"
+
+typedef struct {
+	const char *glyph;
+	const char *fallback;
+	const char *label;
+} hint;
 
 static void text(int x, int y, unsigned int color, float scale, const char *value)
 {
@@ -116,6 +130,41 @@ static void clip_text(char *out, size_t size, const char *value, float scale,
 		if (vita2d_pgf_text_width(font, scale, out) <= width)
 			return;
 	}
+}
+
+static int draw_hints(int x, int y, const hint *items, int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (symbols) {
+			vita2d_pvf_draw_text(symbols, x, y + 2, COLOR_MUTED, 1.0f,
+					     items[i].glyph);
+			x += vita2d_pvf_text_width(symbols, 1.0f, items[i].glyph) + 8;
+		} else {
+			text(x, y, COLOR_MUTED, 1.0f, items[i].fallback);
+			x += vita2d_pgf_text_width(font, 1.0f, items[i].fallback) + 6;
+		}
+
+		text(x, y, COLOR_MUTED, 1.0f, items[i].label);
+		x += vita2d_pgf_text_width(font, 1.0f, items[i].label) + 22;
+	}
+	return x;
+}
+
+static void format_date(unsigned int packed, char *out, size_t size)
+{
+	static const char *months[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+					  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+	unsigned int year = packed / 10000;
+	unsigned int month = (packed / 100) % 100;
+	unsigned int day = packed % 100;
+
+	if (packed == 0 || month < 1 || month > 12) {
+		snprintf(out, size, "unknown");
+		return;
+	}
+	snprintf(out, size, "%u %s %u", day, months[month - 1], year);
 }
 
 static vhdb_installed *installed_for(const vhdb_record *rec)
@@ -155,13 +204,14 @@ static int belongs_to(const vhdb_record *rec, int which)
 		return rec->platform == VHDB_PLATFORM_PLUGIN;
 	case CATEGORY_PSP:
 		return rec->platform == VHDB_PLATFORM_PSP;
-	case CATEGORY_TOOLS:
-		return rec->platform == VHDB_PLATFORM_TOOL;
 	case CATEGORY_ALL:
-		return 1;
+		return rec->platform != VHDB_PLATFORM_TOOL;
 	default:
 		break;
 	}
+
+	if (rec->platform == VHDB_PLATFORM_TOOL)
+		return 0;
 
 	status_for(rec, &status);
 
@@ -437,8 +487,13 @@ static void draw_detail(void)
 	      vhdb_type_name(rec->type), (double)rec->size / 1048576.0);
 	y += 22;
 
-	textf(x, y, COLOR_MUTED, 1.0f, "%s   released %u   id %u",
-	      titleid[0] ? titleid : "no title id", rec->date, rec->id);
+	{
+		char released[32];
+
+		format_date(rec->date, released, sizeof(released));
+		textf(x, y, COLOR_MUTED, 1.0f, "%s   released %s   id %u",
+		      titleid[0] ? titleid : "no title id", released, rec->id);
+	}
 	y += 30;
 
 	text(x, y, status_color(&status, vhdb_can_install(rec, VHDB_CLIENT_VITA)),
@@ -471,45 +526,58 @@ static void draw_detail(void)
 
 static void draw_footer(void)
 {
-	const char *hints;
+	static const hint list_hints[] = {
+		{ GLYPH_CROSS, "X", "details" },
+		{ GLYPH_L GLYPH_R, "L R", "category" },
+		{ GLYPH_SELECT, "Select", "sync" },
+		{ GLYPH_START, "Start", "scan" }
+	};
+	static const hint back_only[] = {
+		{ GLYPH_CIRCLE, "O", "back" }
+	};
+	hint detail_hints[3];
+	int count = 0;
+
+	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
+			      FOOTER_HEIGHT, COLOR_PANEL);
 
 	if (view == VIEW_LIST) {
-		hints = "X details   L R category   Select sync   Start scan";
+		draw_hints(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, list_hints, 4);
 	} else if (filtered_count == 0) {
-		hints = "O back";
+		draw_hints(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, back_only, 1);
 	} else {
 		const vhdb_record *rec = vhdb_at(&db, filtered[selected]);
 		vhdb_status status;
 
 		status_for(rec, &status);
 
-		if (!vhdb_can_install(rec, VHDB_CLIENT_VITA))
-			hints = "O back";
-		else if (status.state == VHDB_STATE_UPDATE)
-			hints = vhdb_has_data_file(rec)
-					? "X update   Square data files   O back"
-					: "X update   O back";
-		else if (status.state == VHDB_STATE_NOT_INSTALLED)
-			hints = vhdb_has_data_file(rec)
-					? "X install   Square data files   O back"
-					: "X install   O back";
-		else
-			hints = vhdb_has_data_file(rec)
-					? "X reinstall   Square data files   O back"
-					: "X reinstall   O back";
+		if (vhdb_can_install(rec, VHDB_CLIENT_VITA)) {
+			detail_hints[count].glyph = GLYPH_CROSS;
+			detail_hints[count].fallback = "X";
+			if (status.state == VHDB_STATE_UPDATE)
+				detail_hints[count].label = "update";
+			else if (status.state == VHDB_STATE_NOT_INSTALLED)
+				detail_hints[count].label = "install";
+			else
+				detail_hints[count].label = "reinstall";
+			count++;
+
+			if (vhdb_has_data_file(rec)) {
+				detail_hints[count].glyph = GLYPH_SQUARE;
+				detail_hints[count].fallback = "Square";
+				detail_hints[count].label = "data files";
+				count++;
+			}
+		}
+
+		detail_hints[count].glyph = GLYPH_CIRCLE;
+		detail_hints[count].fallback = "O";
+		detail_hints[count].label = "back";
+		count++;
+
+		draw_hints(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, detail_hints, count);
 	}
 
-	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
-			      FOOTER_HEIGHT, COLOR_PANEL);
-	text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f, hints);
-	{
-		char stamp[32];
-
-		snprintf(stamp, sizeof(stamp), "built %u",
-			 db.header ? db.header->built : 0);
-		text(SCREEN_WIDTH - 20 - vita2d_pgf_text_width(font, 1.0f, stamp),
-		     SCREEN_HEIGHT - 12, COLOR_MUTED, 1.0f, stamp);
-	}
 }
 
 static void overlay(const char *title, const char *line1, const char *line2)
@@ -1054,6 +1122,7 @@ int main(void)
 	vita2d_init();
 	vita2d_set_clear_color(COLOR_BACKGROUND);
 	font = vita2d_load_default_pgf();
+	symbols = vita2d_load_custom_pvf("sa0:data/font/pvf/psexchar.pvf");
 
 	rc = vhdb_load(&db, CATALOG_PATH, 0);
 	if (rc != VHDB_OK)
@@ -1140,6 +1209,8 @@ int main(void)
 	vita2d_wait_rendering_done();
 	vita2d_fini();
 	vita2d_free_pgf(font);
+	if (symbols)
+		vita2d_free_pvf(symbols);
 
 	free(filtered);
 	vhdb_installed_free(&installed);
