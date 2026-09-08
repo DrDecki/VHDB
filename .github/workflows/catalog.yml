@@ -36,6 +36,12 @@ jobs:
         run: |
           timeout 40m python3 tools/hash_eboots.py 250 || true
 
+      - name: Refresh the rolling builds
+        env:
+          VHDB_CATALOG: ${{ github.workspace }}/catalog
+        run: |
+          timeout 30m python3 tools/refresh_rolling.py || true
+
       - name: Build vhdb.bin
         env:
           VHDB_CATALOG: ${{ github.workspace }}/catalog
@@ -79,10 +85,10 @@ jobs:
 
       - name: Keep the new eboot hashes
         run: |
-          if ! git diff --quiet eboot_hashes.json; then
+          if ! git diff --quiet eboot_hashes.json rolling_state.json; then
             git config user.name "github-actions"
             git config user.email "github-actions@users.noreply.github.com"
-            git add eboot_hashes.json
+            git add eboot_hashes.json rolling_state.json
             git commit -m "Hashed the eboots for entries that did not have them yet."
             git push
           fi

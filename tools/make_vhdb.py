@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import struct
 import sys
 import zlib
@@ -26,6 +27,7 @@ FLAG_HAS_TRAILER = 1 << 3
 FLAG_HASH2 = 1 << 4
 FLAG_HAS_EBOOT = 1 << 5
 FLAG_HAS_AUX = 1 << 6
+FLAG_ROLLING = 1 << 7
 
 EBOOT_CACHE = "eboot_hashes.json"
 
@@ -105,6 +107,25 @@ def load_eboot_cache():
         return json.load(handle)
 
 
+ROLLING_URL = re.compile(r"/(continuous|nightly|latest|prerelease|ci|dev)/", re.I)
+ROLLING_VERSION = re.compile(r"\b(nightly|continuous|latest)\b", re.I)
+
+
+VERSIONED_NAME = re.compile(r"\d+[._]\d")
+
+
+def is_rolling(url, version):
+    if not url:
+        return bool(version and ROLLING_VERSION.search(version))
+    if "VitaHomebrewDB/releases/download/mirror/" in url:
+        return False
+    if VERSIONED_NAME.search(url.rsplit("/", 1)[-1]):
+        return False
+    if ROLLING_URL.search(url):
+        return True
+    return bool(version and ROLLING_VERSION.search(version))
+
+
 def build():
     eboots = load_eboot_cache()
     blob = StringBlob()
@@ -112,6 +133,7 @@ def build():
     meta = []
     per_platform = Counter()
     with_eboot = 0
+    rolling_count = 0
     per_type = defaultdict(list)
     missing = []
 
@@ -132,6 +154,8 @@ def build():
                 flags |= FLAG_HAS_SHOTS
             if (get("trailer") or "").strip():
                 flags |= FLAG_HAS_TRAILER
+            if is_rolling(get("url"), get("version")):
+                flags |= FLAG_ROLLING
 
             hash1, _ = pack_md5(get("hash"))
             hash2, valid2 = pack_md5(get("hash2"))
@@ -193,6 +217,8 @@ def build():
             per_platform[label] += 1
             if valid_eboot:
                 with_eboot += 1
+            if flags & FLAG_ROLLING:
+                rolling_count += 1
             if platform == 0:
                 per_type[to_int(get("type"))].append(get("name") or "")
 
@@ -255,6 +281,7 @@ def build():
         print("skipped      %s" % ", ".join(missing))
     print("platforms    %s" % dict(per_platform))
     print("eboot hashes %d of %d entries" % (with_eboot, count))
+    print("rolling builds %d" % rolling_count)
     print("")
     print("vita type values, three names each:")
     for key in sorted(per_type):

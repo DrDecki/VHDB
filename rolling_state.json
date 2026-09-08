@@ -1,0 +1,104 @@
+{
+ "1024": {
+  "md5": "1ff18b7e47351c8f2a15a37a0ebb9261",
+  "size": "14638132",
+  "stamp": "\"0x8DB0116185F5D5D\"",
+  "url": "https://github.com/cy33hc/vita-smb-client/releases/download/latest/smbclient.vpk"
+ },
+ "1025": {
+  "md5": "af59e561de2fe37adaac78db447343b0",
+  "size": "15798332",
+  "stamp": "\"0x8DB011C741B59DC\"",
+  "url": "https://github.com/cy33hc/vita-webdav-client/releases/download/latest/webdavclient.vpk"
+ },
+ "1028": {
+  "md5": "d6c1f0b2ab51328f4028ba0490a6617c",
+  "size": "3612951",
+  "stamp": "\"0x8DEF321178E5066\"",
+  "url": "https://github.com/DrDecki/VitaHomebrewDB/releases/download/mirror/1028-nzp.vpk"
+ },
+ "1093": {
+  "md5": "483a8f91d912fbff72437a08f773b745",
+  "size": "479924",
+  "stamp": "\"0x8DEF64CA92F948A\"",
+  "url": "https://github.com/Hydr8gon/NooDS/releases/download/release/noods-vita.zip"
+ },
+ "1157": {
+  "md5": "559fe63a71c3991c3416a1c23d2e6853",
+  "size": "26651841",
+  "stamp": "\"0x8DF0D9932B9ED1C\"",
+  "url": "https://github.com/FWGS/xash3d-fwgs/releases/download/continuous/xash3d-fwgs-psvita.7z"
+ },
+ "1218": {
+  "md5": "a28c37d41f4b94a1f71b152c4ea6bd41",
+  "size": "165025013",
+  "stamp": "\"0x8DC8BC5A1D07608\"",
+  "url": "https://github.com/Grimiku/Junipers-Knot-Vita/releases/download/Latest/Juniper.s.Knot-00.99.vpk"
+ },
+ "1219": {
+  "md5": "563932f4cdbeb6851d7dd78e59a65579",
+  "size": "127068435",
+  "stamp": "\"0x8DC822E17641AAB\"",
+  "url": "https://github.com/Grimiku/Cradle-Song-Vita/releases/download/Latest/Cradle.Song.Vita-00.98.vpk"
+ },
+ "1228": {
+  "md5": "ff9bb70d2785886fd184ace9b78cf296",
+  "size": "14511015",
+  "stamp": "\"0x8DCBC71EFDB0665\"",
+  "url": "https://github.com/raidengugga/Neet-Girl-Date-Night-PSVITA/releases/download/Latest/NGDN-01.00.vpk"
+ },
+ "1452": {
+  "md5": "dfc2f3dbe7d0afb766fdb6351178a539",
+  "size": "7156840",
+  "stamp": "\"0x8DF0C35F99CE5E7\"",
+  "url": "https://github.com/isledecomp/isle-portable/releases/download/continuous/isle.vpk"
+ },
+ "186": {
+  "md5": "ed3897e38f786293c63f9b65709a8605",
+  "size": "487257047",
+  "stamp": "\"0x8DEF25078B10309\"",
+  "url": "https://github.com/DrDecki/VitaHomebrewDB/releases/download/mirror/186-186.vpk"
+ },
+ "405": {
+  "md5": "cc4a26b0b3e59a24ae098bd236d5a420",
+  "size": "145368891",
+  "stamp": "\"0x8DEF2488ACECB14\"",
+  "url": "https://github.com/DrDecki/VitaHomebrewDB/releases/download/mirror/405-405.vpk"
+ },
+ "553": {
+  "md5": "66821322d0437c49140e87b630735905",
+  "size": "2973584",
+  "stamp": "\"0x8DEFFCF00963993\"",
+  "url": "https://github.com/Rinnegatamante/DaedalusX64-vitaGL/releases/download/Nightly/DaedalusX64.vpk"
+ },
+ "583": {
+  "md5": "3bfa17ccb4caa6b946132706ac99f067",
+  "size": "5286589",
+  "stamp": "\"0x8DACCF460C277BF\"",
+  "url": "https://github.com/cy33hc/vita-launcher/releases/download/latest/launcher.vpk"
+ },
+ "815": {
+  "md5": "c8fef5d9c368443ce0894cd0cea3b178",
+  "size": "8229928",
+  "stamp": "\"0x8DEF9E1FE2E1521\"",
+  "url": "https://github.com/Rinnegatamante/yoyoloader_vita/releases/download/Nightly/YoYoLoader.vpk"
+ },
+ "817": {
+  "md5": "a58def434f8e2a29baf14b9965559383",
+  "size": "16543732",
+  "stamp": "\"0x8DB0118FB149807\"",
+  "url": "https://github.com/cy33hc/vita-ftp-client/releases/download/latest/ftpclient.vpk"
+ },
+ "9": {
+  "md5": "5c3e869faa3be41b078f1d9dd58a43e6",
+  "size": "515954",
+  "stamp": "\"0x8D9BA10927D420C\"",
+  "url": "https://github.com/d3m3vilurr/vita-savemgr/releases/download/nightly/savemgr.vpk"
+ },
+ "910": {
+  "md5": "eb77e4aa3e172e42f365d1a70a6e2914",
+  "size": "75641118",
+  "stamp": "\"0x8DF0DA19B9AF3EF\"",
+  "url": "https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-vita.zip"
+ }
+}
