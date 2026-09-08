@@ -576,10 +576,10 @@
   "vpk": "875ad92dca01190eba437f9fa57914c1"
  },
  "1099": {
-  "aux": "330cb42398453499c01864b49c185f71",
+  "aux": "4dc430638d23603ea2118eb9e20a2eaf",
   "aux_kind": 6,
   "eboot": "3333846b67ff62c18a9bb1349884e929",
-  "vpk": "5c7d6d5bc7fb3bb5444d54317c32c825"
+  "vpk": "a5bab31ed4f86d242f72382cd8c76d2b"
  },
  "11": {
   "aux": "",
@@ -3142,6 +3142,12 @@
   "aux_kind": 0,
   "eboot": "d0a838f1b279e50dc6688599f15695a8",
   "vpk": "3f3f05f69ffdac03a104e972ebe96875"
+ },
+ "1551": {
+  "aux": "",
+  "aux_kind": 0,
+  "eboot": "0476bdaee72790131e96583c2c6c50a7",
+  "vpk": "a5cbeb7e7d41c8a6e7d249a62ad02b9b"
  },
  "156": {
   "aux": "",
