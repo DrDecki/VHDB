@@ -500,6 +500,9 @@ static void draw_detail(void)
 	     1.0f, vhdb_list_label(rec, &status, VHDB_CLIENT_VITA));
 	if (status.by_content)
 		text(x + 200, y, COLOR_MUTED, 1.0f, "checked by file contents");
+	else if (rec->flags & VHDB_FLAG_ROLLING)
+		text(x + 200, y, COLOR_MUTED, 1.0f,
+		     "rebuilt constantly, no checksum to compare");
 	y += 30;
 
 	vita2d_draw_rectangle(x, y, SCREEN_WIDTH - x - 178, 1, COLOR_RULE);
@@ -894,7 +897,8 @@ static void install_selected(void)
 	snprintf(line, sizeof(line), "%s %s", vhdb_str(&db, rec->name),
 		 vhdb_str(&db, rec->version));
 
-	if (!vhdb_install_from_url(vhdb_str(&db, rec->url), rec->hash,
+	if (!vhdb_install_from_url(vhdb_str(&db, rec->url),
+				   (rec->flags & VHDB_FLAG_ROLLING) ? NULL : rec->hash,
 				   download_progress, (void *)line, unpack_progress,
 				   (void *)"Installing")) {
 		wait_for_button("Install failed", vhdb_install_error(), NULL);

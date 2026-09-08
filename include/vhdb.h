@@ -16,6 +16,7 @@
 #define VHDB_FLAG_HASH2 0x10u
 #define VHDB_FLAG_HAS_EBOOT 0x20u
 #define VHDB_FLAG_HAS_AUX 0x40u
+#define VHDB_FLAG_ROLLING 0x80u
 
 #define VHDB_AUX_NONE 0u
 #define VHDB_AUX_UNITY 1u

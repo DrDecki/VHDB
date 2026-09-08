@@ -12,6 +12,7 @@
 #define VHDB_STATE_INSTALLED 1
 #define VHDB_STATE_UPDATE 2
 #define VHDB_STATE_UNKNOWN_VERSION 3
+#define VHDB_STATE_ROLLING 4
 
 #define VHDB_NEED_UNCHECKED 0
 #define VHDB_NEED_MET 1
@@ -54,7 +55,7 @@ typedef struct {
 
 typedef int (*vhdb_path_exists_fn)(const char *path, void *user);
 
-int vhdb_version_compare(const char *installed, const char *catalog);
+int vhdb_version_compare(const char *installed, const char *catalogue);
 const char *vhdb_state_name(int state);
 
 int vhdb_needs_count(const char *needs);
