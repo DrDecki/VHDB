@@ -41,17 +41,20 @@ target_link_libraries(vhdb
   SceSysmodule_stub
   SceCtrl_stub
   SceCommonDialog_stub
+  SceIme_stub
   SceAppMgr_stub
   ScePgf_stub
   ScePvf_stub
   SceIofilemgr_stub
   ScePromoterUtil_stub
+  SceHttp_stub
+  SceSsl_stub
+  SceNet_stub
+  SceNetCtl_stub
   curl
   ssl
   crypto
   zstd
-  SceNet_stub
-  SceNetCtl_stub
   freetype
   png
   jpeg

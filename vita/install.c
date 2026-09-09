@@ -21,6 +21,12 @@
 #define TEMP_DIR VHDB_DATA_DIR "/pkg"
 
 static char last_error[192];
+static int mismatched;
+
+int vhdb_install_mismatched(void)
+{
+	return mismatched;
+}
 
 const char *vhdb_install_error(void)
 {
@@ -290,6 +296,7 @@ int vhdb_install_from_url(const char *url, const uint8_t expected[16],
 	static const uint8_t zero[16] = {0};
 
 	last_error[0] = 0;
+	mismatched = 0;
 
 	if (!vhdb_net_fetch(url, TEMP_VPK, progress, download_label)) {
 		snprintf(last_error, sizeof(last_error), "%s", vhdb_net_error());
@@ -306,6 +313,7 @@ int vhdb_install_from_url(const char *url, const uint8_t expected[16],
 		if (memcmp(digest, expected, 16) != 0) {
 			snprintf(last_error, sizeof(last_error),
 				 "the download does not match the catalog");
+			mismatched = 1;
 			sceIoRemove(TEMP_VPK);
 			return 0;
 		}

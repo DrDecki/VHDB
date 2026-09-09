@@ -32,4 +32,5 @@ vita2d_pvf *vita2d_load_custom_pvf(const char *path);
 void vita2d_free_pvf(vita2d_pvf *font);
 int vita2d_pvf_draw_text(vita2d_pvf *font, int x, int y, unsigned int color, float scale, const char *text);
 int vita2d_pvf_text_width(vita2d_pvf *font, float scale, const char *text);
+void vita2d_common_dialog_update(void);
 #endif
