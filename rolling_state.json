@@ -24,9 +24,9 @@
   "url": "https://github.com/Hydr8gon/NooDS/releases/download/release/noods-vita.zip"
  },
  "1157": {
-  "md5": "7888fa5d80e2783b747e0a59a60e6269",
-  "size": "26632388",
-  "stamp": "\"0x8DF0E45BFCD269F\"",
+  "md5": "84cd6b610df8d0596f86e572515cce51",
+  "size": "26639342",
+  "stamp": "\"0x8DF0E8E59EF4C64\"",
   "url": "https://github.com/FWGS/xash3d-fwgs/releases/download/continuous/xash3d-fwgs-psvita.7z"
  },
  "1218": {
@@ -96,9 +96,9 @@
   "url": "https://github.com/d3m3vilurr/vita-savemgr/releases/download/nightly/savemgr.vpk"
  },
  "910": {
-  "md5": "eb77e4aa3e172e42f365d1a70a6e2914",
-  "size": "75641118",
-  "stamp": "\"0x8DF0DA19B9AF3EF\"",
+  "md5": "17ddc4aaaffbaf07357562fe5f417514",
+  "size": "75643754",
+  "stamp": "\"0x8DF0E6C6F590CB4\"",
   "url": "https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-vita.zip"
  }
 }
