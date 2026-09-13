@@ -30,7 +30,7 @@
 #define SEARCH_FIELD -1
 #define FOOTER_HEIGHT 34
 #define ROW_HEIGHT 46
-#define VISIBLE_ROWS 8
+#define VISIBLE_ROWS 9
 
 #define COLOR_BACKGROUND RGBA8(0x1A, 0x1A, 0x18, 0xFF)
 #define COLOR_PANEL RGBA8(0x24, 0x24, 0x22, 0xFF)
@@ -55,21 +55,20 @@
 #define VIEW_LIST 0
 #define VIEW_DETAIL 1
 
-#define CATEGORY_UPDATES 0
-#define CATEGORY_NEEDS 1
-#define CATEGORY_INSTALLED 2
-#define CATEGORY_GAMES 3
-#define CATEGORY_PORTS 4
-#define CATEGORY_EMULATORS 5
-#define CATEGORY_UTILITIES 6
-#define CATEGORY_PLUGINS 7
+#define CATEGORY_ALL 0
+#define CATEGORY_UPDATES 1
+#define CATEGORY_NEEDS 2
+#define CATEGORY_INSTALLED 3
+#define CATEGORY_GAMES 4
+#define CATEGORY_PORTS 5
+#define CATEGORY_EMULATORS 6
+#define CATEGORY_UTILITIES 7
 #define CATEGORY_PSP 8
-#define CATEGORY_ALL 9
-#define CATEGORY_COUNT 10
+#define CATEGORY_COUNT 9
 
 static const char *category_names[CATEGORY_COUNT] = {
-	"Updates", "Needs files", "Installed", "Games",     "Ports",
-	"Emulators", "Utilities", "Plugins",   "PSP",       "All"
+	"All",       "Updates",   "Needs files", "Installed", "Games",
+	"Ports",     "Emulators", "Utilities",   "PSP"
 };
 
 static vita2d_pgf *font;
@@ -215,6 +214,10 @@ static int belongs_to(const vhdb_record *rec, int which)
 {
 	vhdb_status status;
 
+	if (rec->platform == VHDB_PLATFORM_TOOL ||
+	    rec->platform == VHDB_PLATFORM_PLUGIN)
+		return 0;
+
 	switch (which) {
 	case CATEGORY_GAMES:
 		return rec->platform == VHDB_PLATFORM_VITA &&
@@ -228,17 +231,16 @@ static int belongs_to(const vhdb_record *rec, int which)
 	case CATEGORY_UTILITIES:
 		return rec->platform == VHDB_PLATFORM_VITA &&
 		       rec->type == VHDB_TYPE_UTILITY;
-	case CATEGORY_PLUGINS:
-		return rec->platform == VHDB_PLATFORM_PLUGIN;
 	case CATEGORY_PSP:
 		return rec->platform == VHDB_PLATFORM_PSP;
 	case CATEGORY_ALL:
-		return rec->platform != VHDB_PLATFORM_TOOL;
+		return 1;
 	default:
 		break;
 	}
 
-	if (rec->platform == VHDB_PLATFORM_TOOL)
+	if (rec->platform == VHDB_PLATFORM_TOOL ||
+	    rec->platform == VHDB_PLATFORM_PLUGIN)
 		return 0;
 
 	status_for(rec, &status);
@@ -344,6 +346,23 @@ static void draw_sidebar(void)
 	}
 
 	text(20, 30, COLOR_ACCENT, 1.0f, "VHDB");
+
+	if (vhdb_icons_pack_state() == VHDB_PACK_RUNNING) {
+		uint64_t done, total;
+		uint32_t files, count;
+		char note[64];
+
+		vhdb_icons_pack_progress(&done, &total, &files, &count);
+		text(20, SCREEN_HEIGHT - 58, COLOR_MUTED, 1.0f, "getting icons");
+		if (count)
+			snprintf(note, sizeof(note), "%u of %u", files, count);
+		else if (total)
+			snprintf(note, sizeof(note), "%.0f of %.0f MB",
+				 (double)done / 1048576.0, (double)total / 1048576.0);
+		else
+			snprintf(note, sizeof(note), "starting");
+		text(20, SCREEN_HEIGHT - 34, COLOR_MUTED, 1.0f, note);
+	}
 }
 
 static void draw_list(void)
@@ -581,7 +600,7 @@ static void draw_footer(void)
 		{ GLYPH_CROSS, "X", "details" },
 		{ GLYPH_SQUARE, "Square", "search" },
 		{ GLYPH_TRIANGLE, "Triangle", "sort" },
-		{ GLYPH_L GLYPH_R, "L R", "category" },
+		{ GLYPH_L GLYPH_R, "L R", "category, hold L tap R for random" },
 		{ GLYPH_SELECT, "Select", "sync" },
 		{ GLYPH_START, "Start", "scan" }
 	};
@@ -593,6 +612,8 @@ static void draw_footer(void)
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
 			      FOOTER_HEIGHT, COLOR_PANEL);
+
+
 
 	if (view == VIEW_LIST) {
 		draw_hints(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, list_hints, 6);
@@ -1105,16 +1126,8 @@ static void check_catalog_quietly(void)
 
 static void fetch_icon_pack(void)
 {
-	if (vhdb_icons_have_pack())
-		return;
-
-	frame_with_overlay("Getting the icons", "This happens once, 11 MB",
-			   "O skips");
-	if (cancelled_by_user())
-		return;
-
-	vhdb_icons_fetch_pack(download_progress, (void *)"Getting the icons",
-			      unpack_progress, (void *)"Unpacking the icons");
+	if (!vhdb_icons_have_pack())
+		vhdb_icons_request_pack();
 }
 
 static void startup_tasks(void)
@@ -1242,6 +1255,59 @@ static void ask_for_query(void)
 	rebuild_filter();
 }
 
+static void jump_to_random(void)
+{
+	static unsigned int seed;
+	uint32_t candidates = 0;
+	uint32_t i;
+
+	if (!seed)
+		seed = (unsigned int)sceKernelGetProcessTimeWide();
+	seed = seed * 1103515245u + 12345u;
+
+	for (i = 0; i < vhdb_count(&db); i++) {
+		const vhdb_record *rec = vhdb_at(&db, i);
+
+		if (rec->platform == VHDB_PLATFORM_VITA &&
+		    (rec->type == VHDB_TYPE_GAME || rec->type == VHDB_TYPE_PORT))
+			candidates++;
+	}
+	if (!candidates)
+		return;
+
+	{
+		uint32_t pick = (seed >> 8) % candidates;
+		uint32_t seen = 0;
+
+		for (i = 0; i < vhdb_count(&db); i++) {
+			const vhdb_record *rec = vhdb_at(&db, i);
+
+			if (rec->platform != VHDB_PLATFORM_VITA ||
+			    (rec->type != VHDB_TYPE_GAME && rec->type != VHDB_TYPE_PORT))
+				continue;
+			if (seen++ != pick)
+				continue;
+
+			query[0] = 0;
+			category = CATEGORY_ALL;
+			count_categories();
+			rebuild_filter();
+
+			for (seen = 0; seen < filtered_count; seen++) {
+				if (filtered[seen] != i)
+					continue;
+				selected = (int)seen;
+				scroll = selected > VISIBLE_ROWS / 2
+						 ? selected - VISIBLE_ROWS / 2
+						 : 0;
+				view = VIEW_DETAIL;
+				return;
+			}
+			return;
+		}
+	}
+}
+
 static void move_selection(int delta)
 {
 	if (filtered_count == 0)
@@ -1299,7 +1365,7 @@ int main(void)
 	sceIoMkdir("ux0:data", 0777);
 	sceIoMkdir(DATA_DIR, 0777);
 
-	sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+	sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
 
 	vita2d_init();
 	vita2d_set_clear_color(COLOR_BACKGROUND);
@@ -1355,10 +1421,15 @@ int main(void)
 				move_selection(-VISIBLE_ROWS);
 			if (pressed & SCE_CTRL_RIGHT)
 				move_selection(VISIBLE_ROWS);
-			if (pressed & SCE_CTRL_LTRIGGER)
-				change_category(-1);
-			if (pressed & SCE_CTRL_RTRIGGER)
-				change_category(1);
+			if ((pressed & SCE_CTRL_RTRIGGER) &&
+			    (pad.buttons & SCE_CTRL_LTRIGGER)) {
+				jump_to_random();
+			} else {
+				if (pressed & SCE_CTRL_LTRIGGER)
+					change_category(-1);
+				if (pressed & SCE_CTRL_RTRIGGER)
+					change_category(1);
+			}
 			if (pressed & SCE_CTRL_SQUARE)
 				ask_for_query();
 			if ((pressed & SCE_CTRL_CIRCLE) && query[0]) {

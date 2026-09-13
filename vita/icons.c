@@ -36,6 +36,12 @@ static uint32_t entry_count;
 
 static volatile int wanted = -1;
 static volatile int running;
+static volatile int pack_wanted;
+static volatile int pack_state = VHDB_PACK_IDLE;
+static volatile uint64_t pack_done;
+static volatile uint64_t pack_total;
+static volatile uint32_t pack_files;
+static volatile uint32_t pack_count;
 static SceUID worker;
 
 static void round_corners(vita2d_texture *texture)
@@ -98,13 +104,43 @@ static int fetch_one(uint32_t index)
 	return vhdb_net_fetch(url, path, NULL, NULL);
 }
 
+static int pack_bytes(uint64_t done, uint64_t total, void *user)
+{
+	(void)user;
+	pack_done = done;
+	pack_total = total;
+	return running;
+}
+
+static int pack_entries(uint32_t done, uint32_t total, const char *name,
+			void *user)
+{
+	(void)name;
+	(void)user;
+	pack_files = done;
+	pack_count = total;
+	return running;
+}
+
 static int worker_main(SceSize args, void *argp)
 {
 	(void)args;
 	(void)argp;
 
 	while (running) {
-		int index = wanted;
+		int index;
+
+		if (pack_wanted) {
+			pack_wanted = 0;
+			pack_state = VHDB_PACK_RUNNING;
+			pack_state = vhdb_icons_fetch_pack(pack_bytes, NULL,
+							   pack_entries, NULL)
+					     ? VHDB_PACK_DONE
+					     : VHDB_PACK_FAILED;
+			continue;
+		}
+
+		index = wanted;
 
 		if (index < 0) {
 			sceKernelDelayThread(40 * 1000);
@@ -116,6 +152,31 @@ static int worker_main(SceSize args, void *argp)
 		wanted = -1;
 	}
 	return 0;
+}
+
+void vhdb_icons_request_pack(void)
+{
+	if (pack_state == VHDB_PACK_RUNNING || pack_wanted)
+		return;
+	pack_done = 0;
+	pack_total = 0;
+	pack_files = 0;
+	pack_count = 0;
+	pack_wanted = 1;
+}
+
+int vhdb_icons_pack_state(void)
+{
+	return pack_state;
+}
+
+void vhdb_icons_pack_progress(uint64_t *done, uint64_t *total, uint32_t *files,
+			      uint32_t *count)
+{
+	*done = pack_done;
+	*total = pack_total;
+	*files = pack_files;
+	*count = pack_count;
 }
 
 int vhdb_icons_have_pack(void)
@@ -256,7 +317,12 @@ vita2d_texture *vhdb_icon_for(uint32_t index)
 		remember(index);
 		return textures[index];
 	}
-	if (states[index] == STATE_MISSING || states[index] == STATE_QUEUED)
+	if (states[index] == STATE_MISSING) {
+		if (pack_state != VHDB_PACK_RUNNING)
+			return NULL;
+		states[index] = STATE_UNKNOWN;
+	}
+	if (states[index] == STATE_QUEUED)
 		return NULL;
 
 	icon_path(index, path, sizeof(path));
@@ -264,6 +330,8 @@ vita2d_texture *vhdb_icon_for(uint32_t index)
 	if (states[index] == STATE_UNKNOWN) {
 		memset(&stat, 0, sizeof(stat));
 		if (sceIoGetstat(path, &stat) < 0) {
+			if (pack_state == VHDB_PACK_RUNNING)
+				return NULL;
 			if (wanted < 0) {
 				states[index] = STATE_QUEUED;
 				wanted = (int)index;
