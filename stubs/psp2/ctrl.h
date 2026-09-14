@@ -15,6 +15,7 @@
 #define SCE_CTRL_SELECT 0x1
 typedef struct { unsigned int timeStamp; unsigned int buttons; unsigned char lx, ly, rx, ry; } SceCtrlData;
 #define SCE_CTRL_MODE_ANALOG 1
+#define SCE_CTRL_MODE_ANALOG_WIDE 2
 int sceCtrlSetSamplingMode(int mode);
 int sceCtrlPeekBufferPositive(int port, SceCtrlData *pad, int count);
 #endif

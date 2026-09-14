@@ -79,14 +79,14 @@ static vhdb_installed_list installed;
 static uint32_t *filtered;
 static uint32_t filtered_count;
 
-static int category = CATEGORY_UPDATES;
-static int selected;
+static int category = CATEGORY_ALL;
+static int selected = SEARCH_FIELD;
 static int scroll;
 static int view = VIEW_LIST;
 static int sort_by_date = 1;
 static int category_counts[CATEGORY_COUNT];
 static char query[64];
-static unsigned char stick_y = 128;
+static int stick_hold;
 
 #define GLYPH_TRIANGLE " "
 #define GLYPH_CIRCLE "!"
@@ -102,6 +102,21 @@ typedef struct {
 	const char *fallback;
 	const char *label;
 } hint;
+
+static void draw_sidebar(void);
+static void draw_list(void);
+static void draw_footer(void);
+static void rebuild_filter(void);
+static void count_categories(void);
+static void frame_with_overlay(const char *title, const char *line1,
+			       const char *line2);
+static void wait_for_button(const char *title, const char *line1,
+			    const char *line2);
+static int download_progress(uint64_t done, uint64_t total, void *user);
+static int unpack_progress(uint32_t done, uint32_t total, const char *name,
+			   void *user);
+static void move_selection(int delta);
+static void ask_for_query(void);
 
 static void text(int x, int y, unsigned int color, float scale, const char *value)
 {
@@ -137,26 +152,6 @@ static void clip_text(char *out, size_t size, const char *value, float scale,
 	}
 }
 
-static int draw_hints(int x, int y, const hint *items, int count)
-{
-	int i;
-
-	for (i = 0; i < count; i++) {
-		if (symbols) {
-			vita2d_pvf_draw_text(symbols, x, y + 2, COLOR_MUTED, 1.0f,
-					     items[i].glyph);
-			x += vita2d_pvf_text_width(symbols, 1.0f, items[i].glyph) + 8;
-		} else {
-			text(x, y, COLOR_MUTED, 1.0f, items[i].fallback);
-			x += vita2d_pgf_text_width(font, 1.0f, items[i].fallback) + 6;
-		}
-
-		text(x, y, COLOR_MUTED, 1.0f, items[i].label);
-		x += vita2d_pgf_text_width(font, 1.0f, items[i].label) + 22;
-	}
-	return x;
-}
-
 static void format_date(unsigned int packed, char *out, size_t size)
 {
 	static const char *months[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -170,22 +165,6 @@ static void format_date(unsigned int packed, char *out, size_t size)
 		return;
 	}
 	snprintf(out, size, "%u %s %u", day, months[month - 1], year);
-}
-
-static vhdb_installed *installed_for(const vhdb_record *rec)
-{
-	char titleid[13];
-	vhdb_installed *entry = vhdb_installed_find_id(&installed, rec->id);
-
-	if (entry)
-		return entry;
-	vhdb_titleid(rec, titleid, sizeof(titleid));
-	return vhdb_installed_find_titleid(&installed, titleid);
-}
-
-static void status_for(const vhdb_record *rec, vhdb_status *out)
-{
-	vhdb_status_of(&db, rec, installed_for(rec), out, NULL, NULL);
 }
 
 static int contains(const char *haystack, const char *needle)
@@ -208,6 +187,50 @@ static int contains(const char *haystack, const char *needle)
 			return 1;
 	}
 	return 0;
+}
+
+static uint32_t read_u32(const uint8_t *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+	       ((uint32_t)p[3] << 24);
+}
+
+static void to_utf16(const char *value, SceWChar16 *out, int limit)
+{
+	int i = 0;
+
+	while (value[i] && i < limit - 1) {
+		out[i] = (SceWChar16)(unsigned char)value[i];
+		i++;
+	}
+	out[i] = 0;
+}
+
+static void from_utf16(const SceWChar16 *value, char *out, int limit)
+{
+	int i = 0;
+
+	while (value[i] && i < limit - 1) {
+		out[i] = (value[i] < 128) ? (char)value[i] : '?';
+		i++;
+	}
+	out[i] = 0;
+}
+
+static vhdb_installed *installed_for(const vhdb_record *rec)
+{
+	char titleid[13];
+	vhdb_installed *entry = vhdb_installed_find_id(&installed, rec->id);
+
+	if (entry)
+		return entry;
+	vhdb_titleid(rec, titleid, sizeof(titleid));
+	return vhdb_installed_find_titleid(&installed, titleid);
+}
+
+static void status_for(const vhdb_record *rec, vhdb_status *out)
+{
+	vhdb_status_of(&db, rec, installed_for(rec), out, NULL, NULL);
 }
 
 static int belongs_to(const vhdb_record *rec, int which)
@@ -319,6 +342,65 @@ static unsigned int status_color(const vhdb_status *status, int can_install)
 	return COLOR_TEXT;
 }
 
+static int draw_hints(int x, int y, const hint *items, int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (symbols) {
+			vita2d_pvf_draw_text(symbols, x, y + 2, COLOR_MUTED, 1.0f,
+					     items[i].glyph);
+			x += vita2d_pvf_text_width(symbols, 1.0f, items[i].glyph) + 8;
+		} else {
+			text(x, y, COLOR_MUTED, 1.0f, items[i].fallback);
+			x += vita2d_pgf_text_width(font, 1.0f, items[i].fallback) + 6;
+		}
+
+		text(x, y, COLOR_MUTED, 1.0f, items[i].label);
+		x += vita2d_pgf_text_width(font, 1.0f, items[i].label) + 22;
+	}
+	return x;
+}
+
+static void draw_wrapped(const char *value, int x, int *y, int width, int lines,
+			 float scale, unsigned int color)
+{
+	char line[256];
+	int drawn = 0;
+
+	while (*value && drawn < lines) {
+		size_t length = 0;
+		size_t best = 0;
+
+		while (value[length] && value[length] != '\n' &&
+		       length + 1 < sizeof(line)) {
+			line[length] = value[length];
+			line[length + 1] = 0;
+			if (vita2d_pgf_text_width(font, scale, line) > width)
+				break;
+			if (value[length] == ' ')
+				best = length;
+			length++;
+		}
+
+		if (value[length] && value[length] != '\n' && best > 0)
+			length = best;
+
+		memcpy(line, value, length);
+		line[length] = 0;
+		text(x, *y, color, scale, line);
+		*y += (int)(26 * scale) + 4;
+		drawn++;
+
+		value += length;
+		while (*value == ' ' || *value == '\n')
+			value++;
+	}
+
+	if (*value && drawn == lines)
+		text(x, *y, COLOR_MUTED, scale * 1.0f, "...");
+}
+
 static void draw_sidebar(void)
 {
 	int i;
@@ -386,7 +468,8 @@ static void draw_list(void)
 			text(x + 86, 27, COLOR_MUTED, 1.0f,
 			     "name or author, press Square from anywhere");
 
-		textf(x, 58, COLOR_MUTED, 1.0f, "%s, %u entries, sorted by %s",
+		textf(x, 58, COLOR_MUTED, 1.0f,
+		      "%s, %u entries, sorted by %s",
 		      category_names[category], filtered_count,
 		      sort_by_date ? "date" : "name");
 	}
@@ -435,45 +518,6 @@ static void draw_list(void)
 	}
 }
 
-static void draw_wrapped(const char *value, int x, int *y, int width, int lines,
-			 float scale, unsigned int color)
-{
-	char line[256];
-	int drawn = 0;
-
-	while (*value && drawn < lines) {
-		size_t length = 0;
-		size_t best = 0;
-
-		while (value[length] && value[length] != '\n' &&
-		       length + 1 < sizeof(line)) {
-			line[length] = value[length];
-			line[length + 1] = 0;
-			if (vita2d_pgf_text_width(font, scale, line) > width)
-				break;
-			if (value[length] == ' ')
-				best = length;
-			length++;
-		}
-
-		if (value[length] && value[length] != '\n' && best > 0)
-			length = best;
-
-		memcpy(line, value, length);
-		line[length] = 0;
-		text(x, *y, color, scale, line);
-		*y += (int)(26 * scale) + 4;
-		drawn++;
-
-		value += length;
-		while (*value == ' ' || *value == '\n')
-			value++;
-	}
-
-	if (*value && drawn == lines)
-		text(x, *y, COLOR_MUTED, scale * 1.0f, "...");
-}
-
 static void draw_needs(const vhdb_record *rec, int x, int *y)
 {
 	const char *needs = vhdb_str(&db, rec->needs);
@@ -512,12 +556,85 @@ static void draw_needs(const vhdb_record *rec, int x, int *y)
 	*y += 6;
 }
 
+static void draw_detail_icon(uint32_t index)
+{
+	vita2d_texture *icon = vhdb_icon_for(index);
+	float width, height, longest, factor;
+	float box = (float)(SCREEN_WIDTH - 150);
+
+	if (!icon)
+		return;
+
+	width = (float)vita2d_texture_get_width(icon);
+	height = (float)vita2d_texture_get_height(icon);
+	longest = width > height ? width : height;
+	factor = longest > 0.0f ? 128.0f / longest : 1.0f;
+
+	vita2d_draw_texture_scale(icon, box + (128.0f - width * factor) / 2.0f,
+				  34.0f + (128.0f - height * factor) / 2.0f, factor,
+				  factor);
+}
+
+static void draw_detail_head(const vhdb_record *rec, const vhdb_status *status,
+			     int x, int *y)
+{
+	char titleid[13];
+	char released[32];
+	char line[512];
+
+	vhdb_titleid(rec, titleid, sizeof(titleid));
+	format_date(rec->date, released, sizeof(released));
+
+	clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.0f, 500);
+	text(x, *y, COLOR_TEXT, 1.0f, line);
+	*y += 34;
+
+	textf(x, *y, COLOR_MUTED, 1.0f, "%s   %s   %s   %.1f MB",
+	      vhdb_str(&db, rec->version), vhdb_str(&db, rec->author),
+	      vhdb_type_name(rec->type), (double)rec->size / 1048576.0);
+	*y += 22;
+
+	textf(x, *y, COLOR_MUTED, 1.0f, "%s   released %s   id %u",
+	      titleid[0] ? titleid : "no title id", released, rec->id);
+	*y += 30;
+
+	text(x, *y, status_color(status, vhdb_can_install(rec, VHDB_CLIENT_VITA)),
+	     1.0f, vhdb_list_label(rec, status, VHDB_CLIENT_VITA));
+
+	if (status->by_content)
+		text(x + 200, *y, COLOR_MUTED, 1.0f, "checked by file contents");
+	else if (rec->flags & VHDB_FLAG_ROLLING)
+		text(x + 200, *y, COLOR_MUTED, 1.0f,
+		     "rebuilt constantly, no checksum to compare");
+	*y += 30;
+}
+
+static void draw_detail_body(const vhdb_record *rec, int x, int *y)
+{
+	draw_wrapped(vhdb_str(&db, rec->long_description), x, y,
+		     SCREEN_WIDTH - x - 30, 8, 1.0f, COLOR_TEXT);
+	*y += 10;
+
+	draw_needs(rec, x, y);
+
+	if (vhdb_has_data_file(rec)) {
+		textf(x, *y, COLOR_WARN, 1.0f,
+		      "Needs a data file, %.1f MB, press Square",
+		      (double)rec->data_size / 1048576.0);
+		*y += 24;
+	}
+
+	if (rec->aux_kind) {
+		textf(x, *y, COLOR_MUTED, 1.0f, "Engine: %s",
+		      vhdb_aux_name(rec->aux_kind));
+		*y += 22;
+	}
+}
+
 static void draw_detail(void)
 {
 	const vhdb_record *rec;
 	vhdb_status status;
-	char titleid[13];
-	char line[512];
 	int x = SIDEBAR_WIDTH + 24;
 	int y = 48;
 
@@ -526,72 +643,14 @@ static void draw_detail(void)
 
 	rec = vhdb_at(&db, filtered[selected]);
 	status_for(rec, &status);
-	vhdb_titleid(rec, titleid, sizeof(titleid));
 
-	{
-		vita2d_texture *icon = vhdb_icon_for(filtered[selected]);
-
-		if (icon) {
-			float width = (float)vita2d_texture_get_width(icon);
-			float height = (float)vita2d_texture_get_height(icon);
-			float longest = width > height ? width : height;
-			float factor = longest > 0.0f ? 128.0f / longest : 1.0f;
-			float box = (float)(SCREEN_WIDTH - 150);
-
-			vita2d_draw_texture_scale(icon,
-						  box + (128.0f - width * factor) / 2.0f,
-						  34.0f + (128.0f - height * factor) / 2.0f,
-						  factor, factor);
-		}
-	}
-
-	clip_text(line, sizeof(line), vhdb_str(&db, rec->name), 1.0f, 500);
-	text(x, y, COLOR_TEXT, 1.0f, line);
-	y += 34;
-
-	textf(x, y, COLOR_MUTED, 1.0f, "%s   %s   %s   %.1f MB",
-	      vhdb_str(&db, rec->version), vhdb_str(&db, rec->author),
-	      vhdb_type_name(rec->type), (double)rec->size / 1048576.0);
-	y += 22;
-
-	{
-		char released[32];
-
-		format_date(rec->date, released, sizeof(released));
-		textf(x, y, COLOR_MUTED, 1.0f, "%s   released %s   id %u",
-		      titleid[0] ? titleid : "no title id", released, rec->id);
-	}
-	y += 30;
-
-	text(x, y, status_color(&status, vhdb_can_install(rec, VHDB_CLIENT_VITA)),
-	     1.0f, vhdb_list_label(rec, &status, VHDB_CLIENT_VITA));
-	if (status.by_content)
-		text(x + 200, y, COLOR_MUTED, 1.0f, "checked by file contents");
-	else if (rec->flags & VHDB_FLAG_ROLLING)
-		text(x + 200, y, COLOR_MUTED, 1.0f,
-		     "rebuilt constantly, no checksum to compare");
-	y += 30;
+	draw_detail_icon(filtered[selected]);
+	draw_detail_head(rec, &status, x, &y);
 
 	vita2d_draw_rectangle(x, y, SCREEN_WIDTH - x - 178, 1, COLOR_RULE);
 	y += 24;
 
-	draw_wrapped(vhdb_str(&db, rec->long_description), x, &y,
-		     SCREEN_WIDTH - x - 30, 8, 1.0f, COLOR_TEXT);
-	y += 10;
-
-	draw_needs(rec, x, &y);
-
-	if (vhdb_has_data_file(rec)) {
-		textf(x, y, COLOR_WARN, 1.0f, "Needs a data file, %.1f MB, press Square",
-		      (double)rec->data_size / 1048576.0);
-		y += 24;
-	}
-
-	if (rec->aux_kind) {
-		textf(x, y, COLOR_MUTED, 1.0f, "Engine: %s",
-		      vhdb_aux_name(rec->aux_kind));
-		y += 22;
-	}
+	draw_detail_body(rec, x, &y);
 }
 
 static void draw_footer(void)
@@ -612,8 +671,6 @@ static void draw_footer(void)
 
 	vita2d_draw_rectangle(0, SCREEN_HEIGHT - FOOTER_HEIGHT, SCREEN_WIDTH,
 			      FOOTER_HEIGHT, COLOR_PANEL);
-
-
 
 	if (view == VIEW_LIST) {
 		draw_hints(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 12, list_hints, 6);
@@ -702,6 +759,24 @@ static int download_progress(uint64_t done, uint64_t total, void *user)
 	return (pad.buttons & SCE_CTRL_CIRCLE) ? 0 : 1;
 }
 
+static int unpack_progress(uint32_t done, uint32_t total, const char *name,
+			   void *user)
+{
+	char line[128];
+
+	snprintf(line, sizeof(line), "%u of %u files", done, total);
+	frame_with_overlay((const char *)user, line, name);
+	return 1;
+}
+
+static void scan_progress(int done, const char *name, void *user)
+{
+	char line[96];
+
+	snprintf(line, sizeof(line), "%d found so far", done);
+	frame_with_overlay((const char *)user, line, name);
+}
+
 static void wait_for_button(const char *title, const char *line1,
 			    const char *line2)
 {
@@ -714,7 +789,6 @@ static void wait_for_button(const char *title, const char *line1,
 		sceCtrlPeekBufferPositive(0, &pad, 1);
 		pressed = pad.buttons & ~previous;
 		previous = pad.buttons;
-		stick_y = pad.ly;
 
 		if (pressed & (SCE_CTRL_CROSS | SCE_CTRL_CIRCLE))
 			break;
@@ -723,10 +797,51 @@ static void wait_for_button(const char *title, const char *line1,
 	}
 }
 
-static uint32_t read_u32(const uint8_t *p)
+static int confirm(const char *title, const char *line1, const char *line2)
 {
-	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
-	       ((uint32_t)p[3] << 24);
+	SceCtrlData pad;
+	unsigned int previous = 0xFFFFFFFF;
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		if (pressed & SCE_CTRL_CROSS)
+			return 1;
+		if (pressed & SCE_CTRL_CIRCLE)
+			return 0;
+
+		frame_with_overlay(title, line1, line2);
+	}
+}
+
+static int cancelled_by_user(void)
+{
+	SceCtrlData pad;
+
+	sceCtrlPeekBufferPositive(0, &pad, 1);
+	return (pad.buttons & SCE_CTRL_CIRCLE) ? 1 : 0;
+}
+
+static void fail(const char *first, const char *second)
+{
+	while (1) {
+		vita2d_start_drawing();
+		vita2d_clear_screen();
+		text(60, 200, COLOR_TEXT, 1.0f, first);
+		text(60, 240, COLOR_MUTED, 1.0f, second);
+		text(60, 300, COLOR_MUTED, 1.0f, "Press the PS button to leave.");
+		vita2d_end_drawing();
+		vita2d_swap_buffers();
+	}
+
+	vita2d_wait_rendering_done();
+	vita2d_fini();
+	vita2d_free_pgf(font);
+	sceKernelExitProcess(0);
 }
 
 static int reload_catalog(void)
@@ -799,14 +914,110 @@ static void sync_catalog(void)
 	wait_for_button("Catalog updated", line, NULL);
 }
 
-static int unpack_progress(uint32_t done, uint32_t total, const char *name,
-			   void *user)
+static void check_catalog_quietly(void)
 {
-	char line[128];
+	uint8_t header[VHDB_HEADER_SIZE];
 
-	snprintf(line, sizeof(line), "%u of %u files", done, total);
-	frame_with_overlay((const char *)user, line, name);
-	return 1;
+	frame_with_overlay("Checking the catalog", NULL, "O skips");
+	if (cancelled_by_user())
+		return;
+
+	if (!vhdb_net_head(CATALOG_URL, header, sizeof(header)) ||
+	    read_u32(header) != VHDB_MAGIC)
+		return;
+	if (db.header && read_u32(header + 40) == db.header->catalog_hash)
+		return;
+
+	if (!vhdb_net_fetch(CATALOG_URL, CATALOG_PATH, download_progress,
+			    (void *)"A newer catalog is out"))
+		return;
+
+	reload_catalog();
+}
+
+static int read_version_file(char *out, size_t size)
+{
+	SceUID file;
+	int read;
+
+	file = sceIoOpen(VERSION_PATH, SCE_O_RDONLY, 0777);
+	if (file < 0)
+		return 0;
+
+	read = sceIoRead(file, out, (unsigned int)size - 1);
+	sceIoClose(file);
+	sceIoRemove(VERSION_PATH);
+
+	if (read <= 0)
+		return 0;
+	out[read] = 0;
+
+	while (read > 0 && (out[read - 1] == '\n' || out[read - 1] == '\r' ||
+			    out[read - 1] == ' '))
+		out[--read] = 0;
+	return out[0] != 0;
+}
+
+static void check_client_update(void)
+{
+	char latest[32];
+	char line[96];
+	SceCtrlData pad;
+	unsigned int previous = 0xFFFFFFFF;
+
+	if (!vhdb_net_fetch(VERSION_URL, VERSION_PATH, NULL, NULL))
+		return;
+	if (!read_version_file(latest, sizeof(latest)))
+		return;
+	if (vhdb_version_compare(CLIENT_VERSION, latest) != VHDB_VER_NEWER)
+		return;
+
+	snprintf(line, sizeof(line), "You have %s, %s is out", CLIENT_VERSION,
+		 latest);
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		if (pressed & SCE_CTRL_CIRCLE)
+			return;
+		if (pressed & SCE_CTRL_CROSS)
+			break;
+
+		frame_with_overlay("A new VHDB is out", line,
+				   "X updates now, O skips");
+	}
+
+	if (!vhdb_install_from_url(CLIENT_VPK_URL, NULL, download_progress,
+				   (void *)"Updating VHDB", unpack_progress,
+				   (void *)"Installing VHDB")) {
+		wait_for_button("Update failed", vhdb_install_error(), NULL);
+		return;
+	}
+
+	wait_for_button("VHDB updated", "Close it and start it again.", NULL);
+}
+
+static void fetch_icon_pack(void)
+{
+	if (!vhdb_icons_have_pack())
+		vhdb_icons_request_pack();
+}
+
+static void startup_tasks(void)
+{
+	frame_with_overlay("Starting the network", NULL, "O skips");
+	if (cancelled_by_user())
+		return;
+	if (!vhdb_net_start() || !vhdb_net_online())
+		return;
+
+	check_client_update();
+	check_catalog_quietly();
+	fetch_icon_pack();
 }
 
 static void remember_installed(const vhdb_record *rec)
@@ -833,27 +1044,6 @@ static void remember_installed(const vhdb_record *rec)
 	vhdb_installed_save(&installed, INSTALLED_PATH);
 	count_categories();
 	rebuild_filter();
-}
-
-static int confirm(const char *title, const char *line1, const char *line2)
-{
-	SceCtrlData pad;
-	unsigned int previous = 0xFFFFFFFF;
-
-	while (1) {
-		unsigned int pressed;
-
-		sceCtrlPeekBufferPositive(0, &pad, 1);
-		pressed = pad.buttons & ~previous;
-		previous = pad.buttons;
-
-		if (pressed & SCE_CTRL_CROSS)
-			return 1;
-		if (pressed & SCE_CTRL_CIRCLE)
-			return 0;
-
-		frame_with_overlay(title, line1, line2);
-	}
 }
 
 static int fetch_data_for(const vhdb_record *rec, int ask)
@@ -1000,14 +1190,6 @@ static void install_selected(void)
 	wait_for_button("Installed", line, NULL);
 }
 
-static void scan_progress(int done, const char *name, void *user)
-{
-	char line[96];
-
-	snprintf(line, sizeof(line), "%d found so far", done);
-	frame_with_overlay((const char *)user, line, name);
-}
-
 static void scan_console(void)
 {
 	char line[96];
@@ -1029,230 +1211,34 @@ static void scan_console(void)
 			"Versions now come from the files themselves.");
 }
 
-static int cancelled_by_user(void)
+static void move_selection(int delta)
 {
-	SceCtrlData pad;
+	if (filtered_count == 0)
+		return;
 
-	sceCtrlPeekBufferPositive(0, &pad, 1);
-	return (pad.buttons & SCE_CTRL_CIRCLE) ? 1 : 0;
+	selected += delta;
+	if (selected < SEARCH_FIELD)
+		selected = SEARCH_FIELD;
+	if (selected >= (int)filtered_count)
+		selected = (int)filtered_count - 1;
+
+	if (selected < scroll)
+		scroll = selected < 0 ? 0 : selected;
+	if (selected - scroll >= VISIBLE_ROWS)
+		scroll = selected - VISIBLE_ROWS + 1;
 }
 
-static int read_version_file(char *out, size_t size)
+static void change_category(int delta)
 {
-	SceUID file;
-	int read;
-
-	file = sceIoOpen(VERSION_PATH, SCE_O_RDONLY, 0777);
-	if (file < 0)
-		return 0;
-
-	read = sceIoRead(file, out, (unsigned int)size - 1);
-	sceIoClose(file);
-	sceIoRemove(VERSION_PATH);
-
-	if (read <= 0)
-		return 0;
-	out[read] = 0;
-
-	while (read > 0 && (out[read - 1] == '\n' || out[read - 1] == '\r' ||
-			    out[read - 1] == ' '))
-		out[--read] = 0;
-	return out[0] != 0;
-}
-
-static void check_client_update(void)
-{
-	char latest[32];
-	char line[96];
-	SceCtrlData pad;
-	unsigned int previous = 0xFFFFFFFF;
-
-	if (!vhdb_net_fetch(VERSION_URL, VERSION_PATH, NULL, NULL))
-		return;
-	if (!read_version_file(latest, sizeof(latest)))
-		return;
-	if (vhdb_version_compare(CLIENT_VERSION, latest) != VHDB_VER_NEWER)
-		return;
-
-	snprintf(line, sizeof(line), "You have %s, %s is out", CLIENT_VERSION,
-		 latest);
-
-	while (1) {
-		unsigned int pressed;
-
-		sceCtrlPeekBufferPositive(0, &pad, 1);
-		pressed = pad.buttons & ~previous;
-		previous = pad.buttons;
-
-		if (pressed & SCE_CTRL_CIRCLE)
-			return;
-		if (pressed & SCE_CTRL_CROSS)
-			break;
-
-		frame_with_overlay("A new VHDB is out", line,
-				   "X updates now, O skips");
-	}
-
-	if (!vhdb_install_from_url(CLIENT_VPK_URL, NULL, download_progress,
-				   (void *)"Updating VHDB", unpack_progress,
-				   (void *)"Installing VHDB")) {
-		wait_for_button("Update failed", vhdb_install_error(), NULL);
-		return;
-	}
-
-	wait_for_button("VHDB updated", "Close it and start it again.", NULL);
-}
-
-static void check_catalog_quietly(void)
-{
-	uint8_t header[VHDB_HEADER_SIZE];
-
-	frame_with_overlay("Checking the catalog", NULL, "O skips");
-	if (cancelled_by_user())
-		return;
-
-	if (!vhdb_net_head(CATALOG_URL, header, sizeof(header)) ||
-	    read_u32(header) != VHDB_MAGIC)
-		return;
-	if (db.header && read_u32(header + 40) == db.header->catalog_hash)
-		return;
-
-	if (!vhdb_net_fetch(CATALOG_URL, CATALOG_PATH, download_progress,
-			    (void *)"A newer catalog is out"))
-		return;
-
-	reload_catalog();
-}
-
-static void fetch_icon_pack(void)
-{
-	if (!vhdb_icons_have_pack())
-		vhdb_icons_request_pack();
-}
-
-static void startup_tasks(void)
-{
-	frame_with_overlay("Starting the network", NULL, "O skips");
-	if (cancelled_by_user())
-		return;
-	if (!vhdb_net_start() || !vhdb_net_online())
-		return;
-
-	check_client_update();
-	check_catalog_quietly();
-	fetch_icon_pack();
-}
-
-static void to_utf16(const char *value, SceWChar16 *out, int limit)
-{
-	int i = 0;
-
-	while (value[i] && i < limit - 1) {
-		out[i] = (SceWChar16)(unsigned char)value[i];
-		i++;
-	}
-	out[i] = 0;
-}
-
-static void from_utf16(const SceWChar16 *value, char *out, int limit)
-{
-	int i = 0;
-
-	while (value[i] && i < limit - 1) {
-		out[i] = (value[i] < 128) ? (char)value[i] : '?';
-		i++;
-	}
-	out[i] = 0;
-}
-
-static void ask_for_query(void)
-{
-	static SceWChar16 buffer[SCE_IME_DIALOG_MAX_TEXT_LENGTH + 1];
-	SceWChar16 title[64];
-	SceImeDialogParam param;
-	SceImeDialogResult result;
-	int updated = 0;
-	int frames = 0;
-	int update_result = 0;
-	int rc;
-
-	to_utf16("Search by name or author", title, 64);
-	memset(buffer, 0, sizeof(buffer));
-	to_utf16(query, buffer, SCE_IME_DIALOG_MAX_TEXT_LENGTH);
-
-	sceImeDialogParamInit(&param);
-	param.type = SCE_IME_TYPE_BASIC_LATIN;
-	param.title = title;
-	param.initialText = buffer;
-	param.inputTextBuffer = buffer;
-	param.maxTextLength = SCE_IME_DIALOG_MAX_TEXT_LENGTH;
-
-	rc = sceImeDialogInit(&param);
-	if (rc < 0) {
-		char line[96];
-
-		snprintf(line, sizeof(line), "sceImeDialogInit said 0x%08X",
-			 (unsigned int)rc);
-		wait_for_button("The keyboard did not open", line, NULL);
-		return;
-	}
-
-	while (1) {
-		SceCommonDialogStatus status = sceImeDialogGetStatus();
-		SceCtrlData pad;
-		char line[96];
-
-		if (status == SCE_COMMON_DIALOG_STATUS_FINISHED)
-			break;
-		if (frames == 60 && updated != 0) {
-			char note[96];
-
-			snprintf(note, sizeof(note), "sceCommonDialogUpdate said 0x%08X",
-				 (unsigned int)updated);
-			sceImeDialogTerm();
-			wait_for_button("The keyboard cannot draw", note, NULL);
-			return;
-		}
-		if (frames == 60 && update_result != 0) {
-			char note[96];
-
-			snprintf(note, sizeof(note), "sceCommonDialogUpdate said 0x%08X",
-				 (unsigned int)update_result);
-			sceImeDialogTerm();
-			wait_for_button("The keyboard cannot draw", note, NULL);
-			return;
-		}
-
-		frames++;
-		sceCtrlPeekBufferPositive(0, &pad, 1);
-		if (frames > 120 && (pad.buttons & SCE_CTRL_START)) {
-			sceImeDialogTerm();
-			return;
-		}
-
-		vita2d_start_drawing();
-		vita2d_clear_screen();
-		draw_sidebar();
-		draw_list();
-		draw_footer();
-		snprintf(line, sizeof(line), "status %u, update %d, frame %d, START quits",
-			 (unsigned int)status, updated, frames);
-		text(SIDEBAR_WIDTH + 24, SCREEN_HEIGHT - 44, COLOR_ACCENT, 1.0f, line);
-		vita2d_end_drawing();
-		updated = vita2d_common_dialog_update();
-		vita2d_swap_buffers();
-	}
-
-	memset(&result, 0, sizeof(result));
-	sceImeDialogGetResult(&result);
-	if (result.button == SCE_IME_DIALOG_BUTTON_ENTER)
-		from_utf16(buffer, query, sizeof(query));
-	sceImeDialogTerm();
-
+	category += delta;
+	if (category < 0)
+		category = CATEGORY_COUNT - 1;
+	if (category >= CATEGORY_COUNT)
+		category = 0;
 	selected = 0;
 	scroll = 0;
-	count_categories();
 	rebuild_filter();
+
 }
 
 static void jump_to_random(void)
@@ -1308,68 +1294,78 @@ static void jump_to_random(void)
 	}
 }
 
-static void move_selection(int delta)
-{
-	if (filtered_count == 0)
-		return;
-
-	selected += delta;
-	if (selected < SEARCH_FIELD)
-		selected = SEARCH_FIELD;
-	if (selected >= (int)filtered_count)
-		selected = (int)filtered_count - 1;
-
-	if (selected < scroll)
-		scroll = selected < 0 ? 0 : selected;
-	if (selected - scroll >= VISIBLE_ROWS)
-		scroll = selected - VISIBLE_ROWS + 1;
-}
-
-static void change_category(int delta)
-{
-	category += delta;
-	if (category < 0)
-		category = CATEGORY_COUNT - 1;
-	if (category >= CATEGORY_COUNT)
-		category = 0;
-	selected = 0;
-	scroll = 0;
-	rebuild_filter();
-
-}
-
-static void fail(const char *first, const char *second)
+static int run_keyboard(void)
 {
 	while (1) {
+		SceCommonDialogStatus status = sceImeDialogGetStatus();
+
+		if (status == SCE_COMMON_DIALOG_STATUS_FINISHED)
+			return 1;
+		if (status != SCE_COMMON_DIALOG_STATUS_RUNNING)
+			return 0;
+
 		vita2d_start_drawing();
 		vita2d_clear_screen();
-		text(60, 200, COLOR_TEXT, 1.0f, first);
-		text(60, 240, COLOR_MUTED, 1.0f, second);
-		text(60, 300, COLOR_MUTED, 1.0f, "Press the PS button to leave.");
+		draw_sidebar();
+		draw_list();
+		draw_footer();
 		vita2d_end_drawing();
+		vita2d_common_dialog_update();
 		vita2d_swap_buffers();
 	}
-
-	vita2d_wait_rendering_done();
-	vita2d_fini();
-	vita2d_free_pgf(font);
-	sceKernelExitProcess(0);
 }
 
-int main(void)
+static void ask_for_query(void)
 {
-	SceCtrlData pad;
-	unsigned int previous = 0;
+	static SceWChar16 buffer[SCE_IME_DIALOG_MAX_TEXT_LENGTH + 1];
+	SceWChar16 title[64];
+	SceImeDialogParam param;
+	SceImeDialogResult result;
+
+	to_utf16("Search by name or author", title, 64);
+	memset(buffer, 0, sizeof(buffer));
+	to_utf16(query, buffer, SCE_IME_DIALOG_MAX_TEXT_LENGTH);
+
+	sceImeDialogParamInit(&param);
+	param.type = SCE_IME_TYPE_BASIC_LATIN;
+	param.title = title;
+	param.initialText = buffer;
+	param.inputTextBuffer = buffer;
+	param.maxTextLength = SCE_IME_DIALOG_MAX_TEXT_LENGTH;
+
+	if (sceImeDialogInit(&param) < 0) {
+		wait_for_button("The keyboard did not open",
+				"Your firmware turned the input dialog down.", NULL);
+		return;
+	}
+
+	if (run_keyboard()) {
+		memset(&result, 0, sizeof(result));
+		sceImeDialogGetResult(&result);
+		if (result.button == SCE_IME_DIALOG_BUTTON_ENTER)
+			from_utf16(buffer, query, sizeof(query));
+	}
+
+	sceImeDialogTerm();
+
+	selected = 0;
+	scroll = 0;
+	count_categories();
+	rebuild_filter();
+}
+
+static void start_up(void)
+{
 	int rc;
 
 	sceIoMkdir("ux0:data", 0777);
 	sceIoMkdir(DATA_DIR, 0777);
-
 	sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
 
 	vita2d_init();
 	vita2d_set_clear_color(COLOR_BACKGROUND);
 	font = vita2d_load_default_pgf();
+	symbols = vita2d_load_custom_pvf("sa0:data/font/pvf/psexchar.pvf");
 
 	{
 		SceCommonDialogConfigParam config;
@@ -1377,12 +1373,23 @@ int main(void)
 		sceCommonDialogConfigParamInit(&config);
 		sceCommonDialogSetConfigParam(&config);
 	}
-	symbols = vita2d_load_custom_pvf("sa0:data/font/pvf/psexchar.pvf");
 
 	rc = vhdb_load(&db, CATALOG_PATH, 0);
-	if (rc != VHDB_OK)
-		fail("No catalog on this console.",
-		     "Put vhdb.bin into ux0:data/vhdb/ and start again.");
+	if (rc != VHDB_OK) {
+		frame_with_overlay("Getting the catalog", "First start, 1.2 MB", NULL);
+
+		if (!vhdb_net_start() || !vhdb_net_online())
+			fail("No catalog and no connection.",
+			     "Connect to Wi-Fi, or copy vhdb.bin into ux0:data/vhdb.");
+
+		if (!vhdb_net_fetch(CATALOG_URL, CATALOG_PATH, download_progress,
+				    (void *)"Getting the catalog"))
+			fail("The catalog could not be fetched.", vhdb_net_error());
+
+		rc = vhdb_load(&db, CATALOG_PATH, 1);
+		if (rc != VHDB_OK)
+			fail("The catalog did not verify.", vhdb_error(rc));
+	}
 
 	filtered = (uint32_t *)malloc(sizeof(uint32_t) * vhdb_count(&db));
 	if (!filtered)
@@ -1404,78 +1411,10 @@ int main(void)
 	startup_tasks();
 	count_categories();
 	rebuild_filter();
+}
 
-	while (1) {
-		unsigned int pressed;
-
-		sceCtrlPeekBufferPositive(0, &pad, 1);
-		pressed = pad.buttons & ~previous;
-		previous = pad.buttons;
-
-		if (view == VIEW_LIST) {
-			if (pressed & SCE_CTRL_UP)
-				move_selection(-1);
-			if (pressed & SCE_CTRL_DOWN)
-				move_selection(1);
-			if (pressed & SCE_CTRL_LEFT)
-				move_selection(-VISIBLE_ROWS);
-			if (pressed & SCE_CTRL_RIGHT)
-				move_selection(VISIBLE_ROWS);
-			if ((pressed & SCE_CTRL_RTRIGGER) &&
-			    (pad.buttons & SCE_CTRL_LTRIGGER)) {
-				jump_to_random();
-			} else {
-				if (pressed & SCE_CTRL_LTRIGGER)
-					change_category(-1);
-				if (pressed & SCE_CTRL_RTRIGGER)
-					change_category(1);
-			}
-			if (pressed & SCE_CTRL_SQUARE)
-				ask_for_query();
-			if ((pressed & SCE_CTRL_CIRCLE) && query[0]) {
-				query[0] = 0;
-				selected = 0;
-				scroll = 0;
-				count_categories();
-				rebuild_filter();
-			}
-			if (pressed & SCE_CTRL_TRIANGLE) {
-				sort_by_date = !sort_by_date;
-				rebuild_filter();
-			}
-			if (pressed & SCE_CTRL_CROSS) {
-				if (selected == SEARCH_FIELD)
-					ask_for_query();
-				else if (filtered_count > 0)
-					view = VIEW_DETAIL;
-			}
-			if (pressed & SCE_CTRL_SELECT)
-				sync_catalog();
-			if (pressed & SCE_CTRL_START)
-				scan_console();
-		} else {
-			if (pressed & SCE_CTRL_CIRCLE)
-				view = VIEW_LIST;
-			if (pressed & SCE_CTRL_CROSS)
-				install_selected();
-			if (pressed & SCE_CTRL_SQUARE)
-				install_data_file();
-		}
-
-		vita2d_start_drawing();
-		vita2d_clear_screen();
-
-		draw_sidebar();
-		if (view == VIEW_LIST)
-			draw_list();
-		else
-			draw_detail();
-		draw_footer();
-
-		vita2d_end_drawing();
-		vita2d_swap_buffers();
-	}
-
+static void shut_down(void)
+{
 	vhdb_icons_stop();
 	vhdb_net_stop();
 
@@ -1488,7 +1427,123 @@ int main(void)
 	free(filtered);
 	vhdb_installed_free(&installed);
 	vhdb_free(&db);
+}
 
+static void follow_stick(const SceCtrlData *pad)
+{
+	if (pad->ly >= 60 && pad->ly <= 195) {
+		stick_hold = 0;
+		return;
+	}
+
+	if (stick_hold == 0 || stick_hold > 12) {
+		move_selection(pad->ly < 60 ? -1 : 1);
+		if (stick_hold > 12)
+			stick_hold = 9;
+	}
+	stick_hold++;
+}
+
+static void clear_query(void)
+{
+	query[0] = 0;
+	selected = 0;
+	scroll = 0;
+	count_categories();
+	rebuild_filter();
+}
+
+static void keys_in_list(unsigned int pressed, const SceCtrlData *pad)
+{
+	if (pressed & SCE_CTRL_UP)
+		move_selection(-1);
+	if (pressed & SCE_CTRL_DOWN)
+		move_selection(1);
+	if (pressed & SCE_CTRL_LEFT)
+		move_selection(-VISIBLE_ROWS);
+	if (pressed & SCE_CTRL_RIGHT)
+		move_selection(VISIBLE_ROWS);
+
+	if ((pressed & SCE_CTRL_RTRIGGER) && (pad->buttons & SCE_CTRL_LTRIGGER)) {
+		jump_to_random();
+	} else {
+		if (pressed & SCE_CTRL_LTRIGGER)
+			change_category(-1);
+		if (pressed & SCE_CTRL_RTRIGGER)
+			change_category(1);
+	}
+
+	if (pressed & SCE_CTRL_SQUARE)
+		ask_for_query();
+	if ((pressed & SCE_CTRL_CIRCLE) && query[0])
+		clear_query();
+	if (pressed & SCE_CTRL_TRIANGLE) {
+		sort_by_date = !sort_by_date;
+		rebuild_filter();
+	}
+	if (pressed & SCE_CTRL_CROSS) {
+		if (selected == SEARCH_FIELD)
+			ask_for_query();
+		else if (filtered_count > 0)
+			view = VIEW_DETAIL;
+	}
+	if (pressed & SCE_CTRL_SELECT)
+		sync_catalog();
+	if (pressed & SCE_CTRL_START)
+		scan_console();
+}
+
+static void keys_in_detail(unsigned int pressed)
+{
+	if (pressed & SCE_CTRL_CIRCLE)
+		view = VIEW_LIST;
+	if (pressed & SCE_CTRL_CROSS)
+		install_selected();
+	if (pressed & SCE_CTRL_SQUARE)
+		install_data_file();
+}
+
+static void draw_frame(void)
+{
+	vita2d_start_drawing();
+	vita2d_clear_screen();
+
+	draw_sidebar();
+	if (view == VIEW_LIST)
+		draw_list();
+	else
+		draw_detail();
+	draw_footer();
+
+	vita2d_end_drawing();
+	vita2d_swap_buffers();
+}
+
+int main(void)
+{
+	SceCtrlData pad;
+	unsigned int previous = 0;
+
+	start_up();
+
+	while (1) {
+		unsigned int pressed;
+
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		pressed = pad.buttons & ~previous;
+		previous = pad.buttons;
+
+		follow_stick(&pad);
+
+		if (view == VIEW_LIST)
+			keys_in_list(pressed, &pad);
+		else
+			keys_in_detail(pressed);
+
+		draw_frame();
+	}
+
+	shut_down();
 	sceKernelExitProcess(0);
 	return 0;
 }

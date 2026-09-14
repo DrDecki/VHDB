@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <psp2/common_dialog.h>
 #define SCE_IME_TYPE_DEFAULT 1
+#define SCE_IME_TYPE_BASIC_LATIN 0
 #define SCE_IME_DIALOG_BUTTON_ENTER 1
 #define SCE_IME_DIALOG_MAX_TEXT_LENGTH 512
 typedef uint16_t SceWChar16;
