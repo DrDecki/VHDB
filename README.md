@@ -10,13 +10,15 @@ Install `vhdb.vpk` from the
 start it fetches the catalog and the icon pack by itself, so give it a moment on a
 Wi-Fi connection. After that it starts instantly.
 
-    Cross        details, and install from the detail page
-    Square       search, from anywhere, or fetch data files on the detail page
-    Circle       back, or clear the search
-    Triangle     sort by name or by date
-    L R          switch category, hold L and tap R for a random game or port
-    Select       check the catalog for a newer build
-    Start        read ux0:app and work out what is installed
+| Button | In the list | On the detail page |
+| --- | --- | --- |
+| Cross | open the entry | install it |
+| Square | search | fetch the data files |
+| Circle | clear the search | back |
+| Triangle | sort by name or date | |
+| L R | switch category, hold L and tap R for something random | |
+| Select | check for a newer catalog | |
+| Start | read ux0:app and work out what is installed | |
 
 Installing a port pulls its data files along and unpacks them into `ux0:data`.
 Before unpacking it shows what the archive actually contains, because a handful of
