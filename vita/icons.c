@@ -318,7 +318,7 @@ vita2d_texture *vhdb_icon_for(uint32_t index)
 		return textures[index];
 	}
 	if (states[index] == STATE_MISSING) {
-		if (pack_state != VHDB_PACK_RUNNING)
+		if (pack_state == VHDB_PACK_RUNNING || !vhdb_net_online())
 			return NULL;
 		states[index] = STATE_UNKNOWN;
 	}
@@ -332,7 +332,7 @@ vita2d_texture *vhdb_icon_for(uint32_t index)
 		if (sceIoGetstat(path, &stat) < 0) {
 			if (pack_state == VHDB_PACK_RUNNING)
 				return NULL;
-			if (wanted < 0 && vhdb_net_online()) {
+			if (wanted < 0) {
 				states[index] = STATE_QUEUED;
 				wanted = (int)index;
 			}

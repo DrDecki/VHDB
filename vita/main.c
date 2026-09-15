@@ -50,7 +50,7 @@
 #define VERSION_PATH DATA_DIR "/version.txt"
 #define DATA_ZIP DATA_DIR "/data.zip"
 #define DATA_TARGET "ux0:data"
-#define CLIENT_VERSION "1.0"
+#define CLIENT_VERSION "1.1"
 
 #define VIEW_LIST 0
 #define VIEW_DETAIL 1
