@@ -107,6 +107,14 @@ def load_eboot_cache():
         return json.load(handle)
 
 
+def load_client_entry():
+    path = os.path.join(REPO, "client_entry.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 ROLLING_URL = re.compile(r"/(continuous|nightly|latest|prerelease|ci|dev)/", re.I)
 ROLLING_VERSION = re.compile(r"\b(nightly|continuous|latest)\b", re.I)
 
@@ -143,6 +151,10 @@ def build():
         if entries is None:
             missing.append(filename)
             continue
+        if filename == "apps.json":
+            self_entry = load_client_entry()
+            if self_entry:
+                entries = list(entries) + [self_entry]
         for entry in entries:
             get = entry.get
             flags = 0

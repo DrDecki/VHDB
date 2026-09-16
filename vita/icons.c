@@ -346,7 +346,8 @@ vita2d_texture *vhdb_icon_for(uint32_t index)
 		states[index] = STATE_MISSING;
 		return NULL;
 	}
-	round_corners(textures[index]);
+	if (vhdb_at(catalog, index)->platform == VHDB_PLATFORM_VITA)
+		round_corners(textures[index]);
 
 	states[index] = STATE_LOADED;
 	remember(index);
