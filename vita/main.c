@@ -3,11 +3,13 @@
 #include "vhdb_status.h"
 #include "vhdb_vitanet.h"
 #include "vhdb_vitainstall.h"
+#include "vhdb_md5.h"
 #include "vhdb_vitascan.h"
 #include "vhdb_icons.h"
 
 #include <psp2/ctrl.h>
 #include <psp2/common_dialog.h>
+#include <psp2/appmgr.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
@@ -45,12 +47,14 @@
 #define CATALOG_PATH DATA_DIR "/vhdb.bin"
 #define INSTALLED_PATH DATA_DIR "/installed.txt"
 #define CATALOG_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.bin"
-#define VERSION_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/version.txt"
-#define CLIENT_VPK_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/vhdb.vpk"
-#define VERSION_PATH DATA_DIR "/version.txt"
 #define DATA_ZIP DATA_DIR "/data.zip"
 #define DATA_TARGET "ux0:data"
-#define CLIENT_VERSION "1.1"
+#define SELF_TITLEID "VHDB00001"
+#define SELF_EBOOT "ux0:app/" SELF_TITLEID "/eboot.bin"
+#define UPDATER_TITLEID "VHDBUPD01"
+#define UPDATER_EBOOT "ux0:app/" UPDATER_TITLEID "/eboot.bin"
+#define UPDATER_URL "https://github.com/DrDecki/VHDB/releases/download/catalog/updater.vpk"
+#define UPDATE_LOG DATA_DIR "/update_result.txt"
 
 #define VIEW_LIST 0
 #define VIEW_DETAIL 1
@@ -935,45 +939,53 @@ static void check_catalog_quietly(void)
 	reload_catalog();
 }
 
-static int read_version_file(char *out, size_t size)
+static int ensure_updater_installed(void)
 {
-	SceUID file;
-	int read;
+	SceIoStat stat;
 
-	file = sceIoOpen(VERSION_PATH, SCE_O_RDONLY, 0777);
-	if (file < 0)
+	memset(&stat, 0, sizeof(stat));
+	if (sceIoGetstat(UPDATER_EBOOT, &stat) >= 0)
+		return 1;
+
+	frame_with_overlay("Getting ready", "Installing a small helper, once only",
+			   NULL);
+	if (!vhdb_net_start() || !vhdb_net_online())
 		return 0;
 
-	read = sceIoRead(file, out, (unsigned int)size - 1);
-	sceIoClose(file);
-	sceIoRemove(VERSION_PATH);
-
-	if (read <= 0)
-		return 0;
-	out[read] = 0;
-
-	while (read > 0 && (out[read - 1] == '\n' || out[read - 1] == '\r' ||
-			    out[read - 1] == ' '))
-		out[--read] = 0;
-	return out[0] != 0;
+	return vhdb_install_from_url(UPDATER_URL, NULL, download_progress,
+				     (void *)"Getting ready", unpack_progress,
+				     (void *)"Installing the helper");
 }
 
-static void check_client_update(void)
+static void check_self_update(void)
 {
-	char latest[32];
+	const vhdb_record *rec = vhdb_find_titleid(&db, SELF_TITLEID);
+	uint8_t running[16];
 	char line[96];
 	SceCtrlData pad;
 	unsigned int previous = 0xFFFFFFFF;
 
-	if (!vhdb_net_fetch(VERSION_URL, VERSION_PATH, NULL, NULL))
+	if (!rec || !(rec->flags & VHDB_FLAG_HAS_EBOOT))
 		return;
-	if (!read_version_file(latest, sizeof(latest)))
-		return;
-	if (vhdb_version_compare(CLIENT_VERSION, latest) != VHDB_VER_NEWER)
+	if (!vhdb_md5_file(SELF_EBOOT, running))
 		return;
 
-	snprintf(line, sizeof(line), "You have %s, %s is out", CLIENT_VERSION,
-		 latest);
+	{
+		vhdb_installed entry;
+
+		memset(&entry, 0, sizeof(entry));
+		entry.id = rec->id;
+		vhdb_titleid(rec, entry.titleid, sizeof(entry.titleid));
+		memcpy(entry.eboot, running, 16);
+		entry.has_eboot = 1;
+		vhdb_installed_set(&installed, &entry);
+		vhdb_installed_save(&installed, INSTALLED_PATH);
+	}
+
+	if (memcmp(running, rec->eboot, 16) == 0)
+		return;
+
+	snprintf(line, sizeof(line), "%s is out", vhdb_str(&db, rec->version));
 
 	while (1) {
 		unsigned int pressed;
@@ -991,14 +1003,19 @@ static void check_client_update(void)
 				   "X updates now, O skips");
 	}
 
-	if (!vhdb_install_from_url(CLIENT_VPK_URL, NULL, download_progress,
-				   (void *)"Updating VHDB", unpack_progress,
-				   (void *)"Installing VHDB")) {
+	if (!ensure_updater_installed()) {
 		wait_for_button("Update failed", vhdb_install_error(), NULL);
 		return;
 	}
 
-	wait_for_button("VHDB updated", "Close it and start it again.", NULL);
+	if (!vhdb_stage_update(vhdb_str(&db, rec->url), rec->hash, download_progress,
+			       (void *)"Updating VHDB", unpack_progress,
+			       (void *)"Preparing the update")) {
+		wait_for_button("Update failed", vhdb_install_error(), NULL);
+		return;
+	}
+
+	sceAppMgrLoadExec(UPDATER_EBOOT, NULL, NULL);
 }
 
 static void fetch_icon_pack(void)
@@ -1015,7 +1032,7 @@ static void startup_tasks(void)
 	if (!vhdb_net_start() || !vhdb_net_online())
 		return;
 
-	check_client_update();
+	check_self_update();
 	check_catalog_quietly();
 	fetch_icon_pack();
 }
@@ -1354,6 +1371,28 @@ static void ask_for_query(void)
 	rebuild_filter();
 }
 
+static void report_last_update(void)
+{
+	char line[128];
+	SceUID file;
+	int read;
+
+	file = sceIoOpen(UPDATE_LOG, SCE_O_RDONLY, 0777);
+	if (file < 0)
+		return;
+	read = sceIoRead(file, line, sizeof(line) - 1);
+	sceIoClose(file);
+	sceIoRemove(UPDATE_LOG);
+
+	if (read <= 0)
+		return;
+	line[read] = 0;
+
+	if (strcmp(line, "ok") == 0)
+		return;
+	wait_for_button("The last update did not finish", line, NULL);
+}
+
 static void start_up(void)
 {
 	int rc;
@@ -1366,6 +1405,8 @@ static void start_up(void)
 	vita2d_set_clear_color(COLOR_BACKGROUND);
 	font = vita2d_load_default_pgf();
 	symbols = vita2d_load_custom_pvf("sa0:data/font/pvf/psexchar.pvf");
+
+	report_last_update();
 
 	{
 		SceCommonDialogConfigParam config;

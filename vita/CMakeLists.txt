@@ -23,6 +23,7 @@ add_executable(vhdb
   main.c
   net.c
   install.c
+  promote.c
   scan.c
   icons.c
   ${CMAKE_SOURCE_DIR}/../core/vhdb.c
@@ -71,4 +72,24 @@ vita_create_vpk(vhdb.vpk ${VITA_TITLEID} eboot.bin
   FILE sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
   FILE sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
   FILE sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+)
+
+add_executable(updater
+  ${CMAKE_SOURCE_DIR}/../updater/main.c
+  promote.c
+  ${CMAKE_SOURCE_DIR}/../core/sha1.c
+)
+
+target_link_libraries(updater
+  SceSysmodule_stub
+  SceAppMgr_stub
+  SceIofilemgr_stub
+  ScePromoterUtil_stub
+)
+
+vita_create_self(updater_eboot.bin updater UNSAFE)
+
+vita_create_vpk(updater.vpk VHDBUPD01 updater_eboot.bin
+  VERSION "01.00"
+  NAME "VHDB Updater"
 )

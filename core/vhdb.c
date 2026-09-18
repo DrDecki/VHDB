@@ -217,7 +217,7 @@ const vhdb_record *vhdb_find_titleid(const vhdb_db *db, const char *titleid)
 
 	for (i = 0; i < db->count; i++) {
 		const vhdb_record *rec = &db->records[i];
-		if (strncmp(rec->titleid, titleid, 12) == 0) {
+		if (strncmp(rec->titleid, titleid, len) == 0) {
 			if (len == 12 || rec->titleid[len] == 0)
 				return rec;
 		}
