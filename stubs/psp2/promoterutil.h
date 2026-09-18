@@ -5,4 +5,5 @@ int scePromoterUtilityExit(void);
 int scePromoterUtilityPromotePkg(const char *path, int sync);
 int scePromoterUtilityGetState(int *state);
 int scePromoterUtilityGetResult(int *result);
+int scePromoterUtilityDeletePkg(const char *titleid);
 #endif

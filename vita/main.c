@@ -4,6 +4,7 @@
 #include "vhdb_vitanet.h"
 #include "vhdb_vitainstall.h"
 #include "vhdb_md5.h"
+#include "vhdb_promote.h"
 #include "vhdb_vitascan.h"
 #include "vhdb_icons.h"
 
@@ -1371,6 +1372,16 @@ static void ask_for_query(void)
 	rebuild_filter();
 }
 
+static void remove_updater_if_present(void)
+{
+	SceIoStat stat;
+
+	memset(&stat, 0, sizeof(stat));
+	if (sceIoGetstat(UPDATER_EBOOT, &stat) < 0)
+		return;
+	vhdb_delete_package(UPDATER_TITLEID);
+}
+
 static void report_last_update(void)
 {
 	char line[128];
@@ -1407,6 +1418,7 @@ static void start_up(void)
 	symbols = vita2d_load_custom_pvf("sa0:data/font/pvf/psexchar.pvf");
 
 	report_last_update();
+	remove_updater_if_present();
 
 	{
 		SceCommonDialogConfigParam config;

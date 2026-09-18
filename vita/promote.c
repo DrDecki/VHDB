@@ -248,10 +248,30 @@ static void promoter_stop(void)
 						&option);
 }
 
-static int promote(const char *directory)
+static int wait_for_promoter(void)
 {
 	int state = 0;
 	int result = 0;
+
+	do {
+		sceKernelDelayThread(100 * 1000);
+		if (scePromoterUtilityGetState(&state) < 0)
+			break;
+	} while (state);
+
+	scePromoterUtilityGetResult(&result);
+
+	if (result < 0) {
+		snprintf(last_error, sizeof(last_error),
+			 "the installer failed (0x%08X)", (unsigned int)result);
+		return 0;
+	}
+	return 1;
+}
+
+static int promote(const char *directory)
+{
+	int ok;
 
 	promoter_start();
 
@@ -261,21 +281,27 @@ static int promote(const char *directory)
 		return 0;
 	}
 
-	do {
-		sceKernelDelayThread(100 * 1000);
-		if (scePromoterUtilityGetState(&state) < 0)
-			break;
-	} while (state);
-
-	scePromoterUtilityGetResult(&result);
+	ok = wait_for_promoter();
 	promoter_stop();
+	return ok;
+}
 
-	if (result < 0) {
-		snprintf(last_error, sizeof(last_error),
-			 "the installer failed (0x%08X)", (unsigned int)result);
+int vhdb_delete_package(const char *titleid)
+{
+	int ok;
+
+	last_error[0] = 0;
+	promoter_start();
+
+	if (scePromoterUtilityDeletePkg(titleid) < 0) {
+		promoter_stop();
+		snprintf(last_error, sizeof(last_error), "the uninstaller refused it");
 		return 0;
 	}
-	return 1;
+
+	ok = wait_for_promoter();
+	promoter_stop();
+	return ok;
 }
 
 int vhdb_promote_directory(const char *directory)
