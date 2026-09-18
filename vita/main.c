@@ -1033,8 +1033,8 @@ static void startup_tasks(void)
 	if (!vhdb_net_start() || !vhdb_net_online())
 		return;
 
-	check_self_update();
 	check_catalog_quietly();
+	check_self_update();
 	fetch_icon_pack();
 }
 
